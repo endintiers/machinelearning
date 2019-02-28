@@ -3,7 +3,10 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Data;
 
 namespace Microsoft.ML.Transforms
@@ -96,9 +99,9 @@ namespace Microsoft.ML.Transforms
 
         public bool CanShuffle => false;
 
-        Schema IDataView.Schema => OutputSchema;
+        DataViewSchema IDataView.Schema => OutputSchema;
 
-        public Schema OutputSchema => _bindings.Schema;
+        public DataViewSchema OutputSchema => _bindings.Schema;
 
         public long? GetRowCount()
         {
@@ -106,32 +109,31 @@ namespace Microsoft.ML.Transforms
             return null;
         }
 
-        public RowCursor GetRowCursor(Func<int, bool> predicate, Random rand = null)
+        public DataViewRowCursor GetRowCursor(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null)
         {
-            Host.CheckValue(predicate, nameof(predicate));
             Host.CheckValueOrNull(rand);
 
+            var predicate = RowCursorUtils.FromColumnsToPredicate(columnsNeeded, OutputSchema);
             var activeInputs = _bindings.GetActiveInput(predicate);
-            Func<int, bool> srcPredicate = c => activeInputs[c];
+            Func<int, bool> inputPred = c => activeInputs[c];
 
-            var input = _typedSource.GetCursor(srcPredicate, rand == null ? (int?)null : rand.Next());
-            return new Cursor(this, input, predicate);
+            var input = _typedSource.GetCursor(inputPred, rand == null ? (int?)null : rand.Next());
+            return new Cursor(this, input, columnsNeeded);
         }
 
-        public RowCursor[] GetRowCursorSet(Func<int, bool> predicate, int n, Random rand = null)
+        public DataViewRowCursor[] GetRowCursorSet(IEnumerable<DataViewSchema.Column> columnsNeeded, int n, Random rand = null)
         {
-            Contracts.CheckValue(predicate, nameof(predicate));
             Contracts.CheckParam(n >= 0, nameof(n));
             Contracts.CheckValueOrNull(rand);
 
             // This transform is stateful, its contract is to allocate exactly one state object per cursor and call the filter function
             // on every row in sequence. Therefore, parallel cursoring is not possible.
-            return new[] { GetRowCursor(predicate, rand) };
+            return new[] { GetRowCursor(columnsNeeded, rand) };
         }
 
         public IDataView Source => _source;
 
-        public IDataTransform ApplyToData(IHostEnvironment env, IDataView newSource)
+        IDataTransform ITransformTemplate.ApplyToData(IHostEnvironment env, IDataView newSource)
         {
             Contracts.CheckValue(env, nameof(env));
             env.CheckValue(newSource, nameof(newSource));
@@ -144,7 +146,7 @@ namespace Microsoft.ML.Transforms
 
             private readonly RowCursor<TSrc> _input;
             // This is used to serve getters for the columns we produce.
-            private readonly Row _appendedRow;
+            private readonly DataViewRow _appendedRow;
 
             private readonly TSrc _src;
             private readonly TDst _dst;
@@ -154,11 +156,11 @@ namespace Microsoft.ML.Transforms
 
             public override long Batch => _input.Batch;
 
-            public Cursor(StatefulFilterTransform<TSrc, TDst, TState> parent, RowCursor<TSrc> input, Func<int, bool> predicate)
+            public Cursor(StatefulFilterTransform<TSrc, TDst, TState> parent, RowCursor<TSrc> input, IEnumerable<DataViewSchema.Column> columnsNeeded)
                 : base(parent.Host)
             {
                 Ch.AssertValue(input);
-                Ch.AssertValue(predicate);
+                Ch.AssertValue(columnsNeeded);
 
                 _parent = parent;
                 _input = input;
@@ -171,20 +173,13 @@ namespace Microsoft.ML.Transforms
                 CursorChannelAttribute.TrySetCursorChannel(_parent.Host, _dst, Ch);
                 CursorChannelAttribute.TrySetCursorChannel(_parent.Host, _state, Ch);
 
-                if (parent._initStateAction != null)
-                    parent._initStateAction(_state);
+                parent._initStateAction?.Invoke(_state);
 
                 var appendedDataView = new DataViewConstructionUtils.SingleRowLoopDataView<TDst>(parent.Host, _parent._addedSchema);
                 appendedDataView.SetCurrentRowObject(_dst);
 
-                Func<int, bool> appendedPredicate =
-                    col =>
-                    {
-                        col = _parent._bindings.AddedColumnIndices[col];
-                        return predicate(col);
-                    };
-
-                _appendedRow = appendedDataView.GetRowCursor(appendedPredicate);
+                var columnNames = columnsNeeded.Select(c => c.Name);
+                _appendedRow = appendedDataView.GetRowCursor(appendedDataView.Schema.Where(c => !c.IsHidden && columnNames.Contains(c.Name)));
             }
 
             protected override void Dispose(bool disposing)
@@ -205,7 +200,7 @@ namespace Microsoft.ML.Transforms
                 base.Dispose(disposing);
             }
 
-            public override ValueGetter<RowId> GetIdGetter()
+            public override ValueGetter<DataViewRowId> GetIdGetter()
             {
                 return _input.GetIdGetter();
             }
@@ -229,7 +224,7 @@ namespace Microsoft.ML.Transforms
                 isRowAccepted = _parent._filterFunc(_src, _dst, _state);
             }
 
-            public override Schema Schema => _parent._bindings.Schema;
+            public override DataViewSchema Schema => _parent._bindings.Schema;
 
             public override bool IsColumnActive(int col)
             {

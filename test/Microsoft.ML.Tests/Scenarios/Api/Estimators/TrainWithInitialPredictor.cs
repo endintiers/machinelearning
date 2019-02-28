@@ -4,6 +4,7 @@
 
 using Microsoft.ML.Data;
 using Microsoft.ML.RunTests;
+using Microsoft.ML.Trainers;
 using Xunit;
 
 namespace Microsoft.ML.Tests.Scenarios.Api
@@ -20,17 +21,19 @@ namespace Microsoft.ML.Tests.Scenarios.Api
 
             var ml = new MLContext(seed: 1, conc: 1);
 
-            var data = ml.Data.ReadFromTextFile<SentimentData>(GetDataPath(TestDatasets.Sentiment.trainFilename), hasHeader: true);
+            var data = ml.Data.LoadFromTextFile<SentimentData>(GetDataPath(TestDatasets.Sentiment.trainFilename), hasHeader: true);
 
             // Pipeline.
-            var pipeline = ml.Transforms.Text.FeaturizeText("SentimentText", "Features");
+            var pipeline = ml.Transforms.Text.FeaturizeText("Features", "SentimentText");
 
             // Train the pipeline, prepare train set. Since it will be scanned multiple times in the subsequent trainer, we cache the 
             // transformed data in memory.
             var trainData = ml.Data.Cache(pipeline.Fit(data).Transform(data));
 
             // Train the first predictor.
-            var trainer = ml.BinaryClassification.Trainers.StochasticDualCoordinateAscent("Label", "Features",advancedSettings: s => s.NumThreads = 1);
+            var trainer = ml.BinaryClassification.Trainers.StochasticDualCoordinateAscentNonCalibrated(
+                new SdcaNonCalibratedBinaryTrainer.Options { NumThreads = 1 });
+
             var firstModel = trainer.Fit(trainData);
 
             // Train the second predictor on the same data.

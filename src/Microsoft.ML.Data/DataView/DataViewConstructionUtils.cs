@@ -5,7 +5,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Model;
 
@@ -82,7 +84,7 @@ namespace Microsoft.ML.Data
             public override long Position => _position;
 
             public InputRow(IHostEnvironment env, InternalSchemaDefinition schemaDef)
-                : base(env, SchemaBuilder.MakeSchema(GetSchemaColumns(schemaDef)), schemaDef, MakePeeks(schemaDef), c => true)
+                : base(env, SchemaExtensions.MakeSchema(GetSchemaColumns(schemaDef)), schemaDef, MakePeeks(schemaDef), c => true)
             {
                 _position = -1;
             }
@@ -107,26 +109,26 @@ namespace Microsoft.ML.Data
                 _position++;
             }
 
-            public override ValueGetter<RowId> GetIdGetter()
+            public override ValueGetter<DataViewRowId> GetIdGetter()
             {
                 return IdGetter;
             }
 
-            private void IdGetter(ref RowId val) => val = new RowId((ulong)Position, 0);
+            private void IdGetter(ref DataViewRowId val) => val = new DataViewRowId((ulong)Position, 0);
 
             protected override TRow GetCurrentRowObject()
             {
-                Host.Check(Position >= 0, "Can't call a getter on an inactive cursor.");
+                Host.Check(Position >= 0, RowCursorUtils.FetchValueStateError);
                 return _value;
             }
         }
 
         /// <summary>
-        /// A row that consumes items of type <typeparamref name="TRow"/>, and provides an <see cref="Row"/>. This
+        /// A row that consumes items of type <typeparamref name="TRow"/>, and provides an <see cref="DataViewRow"/>. This
         /// is in contrast to <see cref="IRowReadableAs{TRow}"/> which consumes a data view row and publishes them as the output type.
         /// </summary>
         /// <typeparam name="TRow">The input data type.</typeparam>
-        public abstract class InputRowBase<TRow> : Row
+        public abstract class InputRowBase<TRow> : DataViewRow
             where TRow : class
         {
             private readonly int _colCount;
@@ -135,9 +137,9 @@ namespace Microsoft.ML.Data
 
             public override long Batch => 0;
 
-            public override Schema Schema { get; }
+            public override DataViewSchema Schema { get; }
 
-            public InputRowBase(IHostEnvironment env, Schema schema, InternalSchemaDefinition schemaDef, Delegate[] peeks, Func<int, bool> predicate)
+            public InputRowBase(IHostEnvironment env, DataViewSchema schema, InternalSchemaDefinition schemaDef, Delegate[] peeks, Func<int, bool> predicate)
             {
                 Contracts.AssertValue(env);
                 Host = env.Register("Row");
@@ -156,7 +158,7 @@ namespace Microsoft.ML.Data
             }
 
             //private Delegate CreateGetter(SchemaProxy schema, int index, Delegate peek)
-            private Delegate CreateGetter(ColumnType colType, InternalSchemaDefinition.Column column, Delegate peek)
+            private Delegate CreateGetter(DataViewType colType, InternalSchemaDefinition.Column column, Delegate peek)
             {
                 var outputType = column.OutputType;
                 var genericType = outputType;
@@ -170,7 +172,7 @@ namespace Microsoft.ML.Data
                     // String[] -> ReadOnlyMemory<char>
                     if (outputType.GetElementType() == typeof(string))
                     {
-                        Host.Assert(vectorType.ItemType is TextType);
+                        Host.Assert(vectorType.ItemType is TextDataViewType);
                         return CreateConvertingArrayGetterDelegate<string, ReadOnlyMemory<char>>(peek, x => x != null ? x.AsMemory() : ReadOnlyMemory<char>.Empty);
                     }
 
@@ -192,12 +194,12 @@ namespace Microsoft.ML.Data
                     del = CreateDirectVBufferGetterDelegate<int>;
                     genericType = vectorType.ItemType.RawType;
                 }
-                else if (colType is PrimitiveType)
+                else if (colType is PrimitiveDataViewType)
                 {
                     if (outputType == typeof(string))
                     {
                         // String -> ReadOnlyMemory<char>
-                        Host.Assert(colType is TextType);
+                        Host.Assert(colType is TextDataViewType);
                         return CreateConvertingGetterDelegate<String, ReadOnlyMemory<char>>(peek, x => x != null ? x.AsMemory() : ReadOnlyMemory<char>.Empty);
                     }
 
@@ -212,8 +214,7 @@ namespace Microsoft.ML.Data
                     else
                     {
                         var keyRawType = colType.RawType;
-                        Host.Assert(keyType.Contiguous);
-                        Func<Delegate, ColumnType, Delegate> delForKey = CreateKeyGetterDelegate<uint>;
+                        Func<Delegate, DataViewType, Delegate> delForKey = CreateKeyGetterDelegate<uint>;
                         return Utils.MarshalInvoke(delForKey, keyRawType, peek, colType);
                     }
                 }
@@ -295,13 +296,11 @@ namespace Microsoft.ML.Data
                     peek(GetCurrentRowObject(), Position, ref dst));
             }
 
-            private Delegate CreateKeyGetterDelegate<TDst>(Delegate peekDel, ColumnType colType)
+            private Delegate CreateKeyGetterDelegate<TDst>(Delegate peekDel, DataViewType colType)
             {
                 // Make sure the function is dealing with key.
                 KeyType keyType = colType as KeyType;
                 Host.Check(keyType != null);
-                // Following equations work only with contiguous key type.
-                Host.Check(keyType.Contiguous);
                 // Following equations work only with unsigned integers.
                 Host.Check(typeof(TDst) == typeof(ulong) || typeof(TDst) == typeof(uint) ||
                     typeof(TDst) == typeof(byte) || typeof(TDst) == typeof(bool));
@@ -312,15 +311,14 @@ namespace Microsoft.ML.Data
 
                 TDst rawKeyValue = default;
                 ulong key = 0; // the raw key value as ulong
-                ulong min = keyType.Min;
-                ulong max = min + (ulong)keyType.Count - 1;
+                ulong max = keyType.Count - 1;
                 ulong result = 0; // the result as ulong
                 ValueGetter<TDst> getter = (ref TDst dst) =>
                 {
                     peek(GetCurrentRowObject(), Position, ref rawKeyValue);
                     key = (ulong)Convert.ChangeType(rawKeyValue, typeof(ulong));
-                    if (min <= key && key <= max)
-                        result = key - min + 1;
+                    if (key <= max)
+                        result = key + 1;
                     else
                         result = 0;
                     dst = (TDst)Convert.ChangeType(result, typeof(TDst));
@@ -364,7 +362,7 @@ namespace Microsoft.ML.Data
         {
             protected readonly IHost Host;
 
-            private readonly Schema _schema;
+            private readonly DataViewSchema _schema;
             private readonly InternalSchemaDefinition _schemaDefn;
 
             // The array of generated methods that extract the fields of the current row object.
@@ -372,7 +370,7 @@ namespace Microsoft.ML.Data
 
             public abstract bool CanShuffle { get; }
 
-            public Schema Schema => _schema;
+            public DataViewSchema Schema => _schema;
 
             protected DataViewBase(IHostEnvironment env, string name, InternalSchemaDefinition schemaDefn)
             {
@@ -382,7 +380,7 @@ namespace Microsoft.ML.Data
                 Host.AssertValue(schemaDefn);
 
                 _schemaDefn = schemaDefn;
-                _schema = SchemaBuilder.MakeSchema(GetSchemaColumns(schemaDefn));
+                _schema = SchemaExtensions.MakeSchema(GetSchemaColumns(schemaDefn));
                 int n = schemaDefn.Columns.Length;
                 _peeks = new Delegate[n];
                 for (var i = 0; i < n; i++)
@@ -396,23 +394,22 @@ namespace Microsoft.ML.Data
 
             public abstract long? GetRowCount();
 
-            public abstract RowCursor GetRowCursor(Func<int, bool> predicate, Random rand = null);
+            public abstract DataViewRowCursor GetRowCursor(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null);
 
-            public RowCursor[] GetRowCursorSet(Func<int, bool> predicate, int n, Random rand = null)
+            public DataViewRowCursor[] GetRowCursorSet(IEnumerable<DataViewSchema.Column> columnsNeeded, int n, Random rand = null)
             {
-                return new[] { GetRowCursor(predicate, rand) };
+                return new[] { GetRowCursor(columnsNeeded, rand) };
             }
 
-            public sealed class WrappedCursor : RowCursor
+            public sealed class WrappedCursor : DataViewRowCursor
             {
                 private readonly DataViewCursorBase _toWrap;
 
                 public WrappedCursor(DataViewCursorBase toWrap) => _toWrap = toWrap;
 
-                public override CursorState State => _toWrap.State;
                 public override long Position => _toWrap.Position;
                 public override long Batch => _toWrap.Batch;
-                public override Schema Schema => _toWrap.Schema;
+                public override DataViewSchema Schema => _toWrap.Schema;
 
                 protected override void Dispose(bool disposing)
                 {
@@ -422,10 +419,8 @@ namespace Microsoft.ML.Data
 
                 public override ValueGetter<TValue> GetGetter<TValue>(int col)
                     => _toWrap.GetGetter<TValue>(col);
-                public override ValueGetter<RowId> GetIdGetter() => _toWrap.GetIdGetter();
-                public override RowCursor GetRootCursor() => this;
+                public override ValueGetter<DataViewRowId> GetIdGetter() => _toWrap.GetIdGetter();
                 public override bool IsColumnActive(int col) => _toWrap.IsColumnActive(col);
-                public override bool MoveMany(long count) => _toWrap.MoveMany(count);
                 public override bool MoveNext() => _toWrap.MoveNext();
             }
 
@@ -438,6 +433,7 @@ namespace Microsoft.ML.Data
                 protected readonly DataViewBase<TRow> DataView;
                 protected readonly IChannel Ch;
                 private long _position;
+                private bool _disposed;
 
                 /// <summary>
                 /// Zero-based position of the cursor.
@@ -455,62 +451,35 @@ namespace Microsoft.ML.Data
 
                     DataView = dataView;
                     _position = -1;
-                    State = CursorState.NotStarted;
                 }
 
-                public CursorState State { get; private set; }
-
                 /// <summary>
-                /// Convenience property for checking whether the current state of the cursor is <see cref="CursorState.Good"/>.
+                /// Convenience property for checking whether the cursor is in a good state where values
+                /// can be retrieved, that is, whenever <see cref="Position"/> is non-negative.
                 /// </summary>
-                protected bool IsGood => State == CursorState.Good;
+                protected bool IsGood => Position >= 0;
 
                 protected sealed override void Dispose(bool disposing)
                 {
-                    if (State == CursorState.Done)
+                    if (_disposed)
                         return;
-                    Ch.Dispose();
-                    _position = -1;
+                    if (disposing)
+                    {
+                        Ch.Dispose();
+                        _position = -1;
+                    }
+                    _disposed = true;
                     base.Dispose(disposing);
-                    State = CursorState.Done;
                 }
 
                 public bool MoveNext()
                 {
-                    if (State == CursorState.Done)
+                    if (_disposed)
                         return false;
 
-                    Ch.Assert(State == CursorState.NotStarted || State == CursorState.Good);
                     if (MoveNextCore())
                     {
-                        Ch.Assert(State == CursorState.NotStarted || State == CursorState.Good);
-
                         _position++;
-                        State = CursorState.Good;
-                        return true;
-                    }
-
-                    Dispose();
-                    return false;
-                }
-
-                public bool MoveMany(long count)
-                {
-                    // Note: If we decide to allow count == 0, then we need to special case
-                    // that MoveNext() has never been called. It's not entirely clear what the return
-                    // result would be in that case.
-                    Ch.CheckParam(count > 0, nameof(count));
-
-                    if (State == CursorState.Done)
-                        return false;
-
-                    Ch.Assert(State == CursorState.NotStarted || State == CursorState.Good);
-                    if (MoveManyCore(count))
-                    {
-                        Ch.Assert(State == CursorState.NotStarted || State == CursorState.Good);
-
-                        _position += count;
-                        State = CursorState.Good;
                         return true;
                     }
 
@@ -519,29 +488,8 @@ namespace Microsoft.ML.Data
                 }
 
                 /// <summary>
-                /// Default implementation is to simply call MoveNextCore repeatedly. Derived classes should
-                /// override if they can do better.
-                /// </summary>
-                /// <param name="count">The number of rows to move forward.</param>
-                /// <returns>Whether the move forward is on a valid row</returns>
-                protected virtual bool MoveManyCore(long count)
-                {
-                    Ch.Assert(State == CursorState.NotStarted || State == CursorState.Good);
-                    Ch.Assert(count > 0);
-
-                    while (MoveNextCore())
-                    {
-                        Ch.Assert(State == CursorState.NotStarted || State == CursorState.Good);
-                        if (--count <= 0)
-                            return true;
-                    }
-
-                    return false;
-                }
-
-                /// <summary>
-                /// Core implementation of <see cref="MoveNext"/>, called if the cursor state is not
-                /// <see cref="CursorState.Done"/>.
+                /// Core implementation of <see cref="MoveNext"/>, called if no prior call to this method
+                /// has returned <see langword="false"/>.
                 /// </summary>
                 protected abstract bool MoveNextCore();
             }
@@ -563,19 +511,16 @@ namespace Microsoft.ML.Data
                 _data = data;
             }
 
-            public override bool CanShuffle
-            {
-                get { return true; }
-            }
+            public override bool CanShuffle => true;
 
             public override long? GetRowCount()
             {
                 return _data.Count;
             }
 
-            public override RowCursor GetRowCursor(Func<int, bool> predicate, Random rand = null)
+            public override DataViewRowCursor GetRowCursor(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null)
             {
-                Host.CheckValue(predicate, nameof(predicate));
+                var predicate = RowCursorUtils.FromColumnsToPredicate(columnsNeeded, Schema);
                 return new WrappedCursor(new Cursor(Host, "ListDataView", this, predicate, rand));
             }
 
@@ -599,46 +544,38 @@ namespace Microsoft.ML.Data
                         _permutation = Utils.GetRandomPermutation(rand, dataView._data.Count);
                 }
 
-                public override ValueGetter<RowId> GetIdGetter()
+                public override ValueGetter<DataViewRowId> GetIdGetter()
                 {
                     if (_permutation == null)
                     {
                         return
-                            (ref RowId val) =>
+                            (ref DataViewRowId val) =>
                             {
-                                Ch.Check(IsGood, "Cannot call ID getter in current state");
-                                val = new RowId((ulong)Position, 0);
+                                Ch.Check(IsGood, RowCursorUtils.FetchValueStateError);
+                                val = new DataViewRowId((ulong)Position, 0);
                             };
                     }
                     else
                     {
                         return
-                            (ref RowId val) =>
+                            (ref DataViewRowId val) =>
                             {
-                                Ch.Check(IsGood, "Cannot call ID getter in current state");
-                                val = new RowId((ulong)Index, 0);
+                                Ch.Check(IsGood, RowCursorUtils.FetchValueStateError);
+                                val = new DataViewRowId((ulong)Index, 0);
                             };
                     }
                 }
 
                 protected override TRow GetCurrentRowObject()
                 {
-                    Ch.Check(0 <= Position && Position < _data.Count, "Can't call a getter on an inactive cursor.");
+                    Ch.Check(0 <= Position && Position < _data.Count, RowCursorUtils.FetchValueStateError);
                     return _data[Index];
                 }
 
                 protected override bool MoveNextCore()
                 {
-                    Ch.Assert(State != CursorState.Done);
                     Ch.Assert(Position < _data.Count);
                     return Position + 1 < _data.Count;
-                }
-
-                protected override bool MoveManyCore(long count)
-                {
-                    Ch.Assert(State != CursorState.Done);
-                    Ch.Assert(Position < _data.Count);
-                    return count < _data.Count - Position;
                 }
             }
         }
@@ -659,18 +596,14 @@ namespace Microsoft.ML.Data
                 _data = data;
             }
 
-            public override bool CanShuffle
-            {
-                get { return false; }
-            }
+            public override bool CanShuffle => false;
 
             public override long? GetRowCount()
-            {
-                return (_data as ICollection<TRow>)?.Count;
-            }
+                => (_data as ICollection<TRow>)?.Count;
 
-            public override RowCursor GetRowCursor(Func<int, bool> predicate, Random rand = null)
+            public override DataViewRowCursor GetRowCursor(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null)
             {
+                var predicate = RowCursorUtils.FromColumnsToPredicate(columnsNeeded, Schema);
                 return new WrappedCursor (new Cursor(Host, this, predicate));
             }
 
@@ -686,13 +619,13 @@ namespace Microsoft.ML.Data
                     _currentRow = null;
                 }
 
-                public override ValueGetter<RowId> GetIdGetter()
+                public override ValueGetter<DataViewRowId> GetIdGetter()
                 {
                     return
-                        (ref RowId val) =>
+                        (ref DataViewRowId val) =>
                         {
-                            Ch.Check(IsGood, "Cannot call ID getter in current state");
-                            val = new RowId((ulong)Position, 0);
+                            Ch.Check(IsGood, RowCursorUtils.FetchValueStateError);
+                            val = new DataViewRowId((ulong)Position, 0);
                         };
                 }
 
@@ -703,7 +636,6 @@ namespace Microsoft.ML.Data
 
                 protected override bool MoveNextCore()
                 {
-                    Ch.Assert(State != CursorState.Done);
                     var result = _enumerator.MoveNext();
                     _currentRow = result ? _enumerator.Current : null;
                     if (result && _currentRow == null)
@@ -738,9 +670,10 @@ namespace Microsoft.ML.Data
                 _current = value;
             }
 
-            public override RowCursor GetRowCursor(Func<int, bool> predicate, Random rand = null)
+            public override DataViewRowCursor GetRowCursor(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null)
             {
                 Contracts.Assert(_current != null, "The current object must be set prior to cursoring");
+                var predicate = RowCursorUtils.FromColumnsToPredicate(columnsNeeded, Schema);
                 return new WrappedCursor (new Cursor(Host, this, predicate));
             }
 
@@ -754,44 +687,34 @@ namespace Microsoft.ML.Data
                     _currentRow = dataView._current;
                 }
 
-                public override ValueGetter<RowId> GetIdGetter()
+                public override ValueGetter<DataViewRowId> GetIdGetter()
                 {
                     return
-                        (ref RowId val) =>
+                        (ref DataViewRowId val) =>
                         {
-                            Ch.Check(IsGood, "Cannot call ID getter in current state");
-                            val = new RowId((ulong)Position, 0);
+                            Ch.Check(IsGood, RowCursorUtils.FetchValueStateError);
+                            val = new DataViewRowId((ulong)Position, 0);
                         };
                 }
 
                 protected override TRow GetCurrentRowObject() => _currentRow;
 
-                protected override bool MoveNextCore()
-                {
-                    Ch.Assert(State != CursorState.Done);
-                    return true;
-                }
-
-                protected override bool MoveManyCore(long count)
-                {
-                    Ch.Assert(State != CursorState.Done);
-                    return true;
-                }
+                protected override bool MoveNextCore() => true;
             }
         }
 
         [BestFriend]
-        internal static Schema.DetachedColumn[] GetSchemaColumns(InternalSchemaDefinition schemaDefn)
+        internal static DataViewSchema.DetachedColumn[] GetSchemaColumns(InternalSchemaDefinition schemaDefn)
         {
             Contracts.AssertValue(schemaDefn);
-            var columns = new Schema.DetachedColumn[schemaDefn.Columns.Length];
+            var columns = new DataViewSchema.DetachedColumn[schemaDefn.Columns.Length];
             for (int i = 0; i < columns.Length; i++)
             {
                 var col = schemaDefn.Columns[i];
-                var meta = new MetadataBuilder();
-                foreach (var kvp in col.Metadata)
-                    meta.Add(kvp.Value.Kind, kvp.Value.MetadataType, kvp.Value.GetGetterDelegate());
-                columns[i] = new Schema.DetachedColumn(col.ColumnName, col.ColumnType, meta.GetMetadata());
+                var meta = new DataViewSchema.Annotations.Builder();
+                foreach (var kvp in col.Annotations)
+                    meta.Add(kvp.Value.Kind, kvp.Value.AnnotationType, kvp.Value.GetGetterDelegate());
+                columns[i] = new DataViewSchema.DetachedColumn(col.ColumnName, col.ColumnType, meta.ToAnnotations());
             }
 
             return columns;
@@ -799,16 +722,16 @@ namespace Microsoft.ML.Data
     }
 
     /// <summary>
-    /// A single instance of metadata information, associated with a column.
+    /// A single instance of annotation information, associated with a column.
     /// </summary>
-    public abstract partial class MetadataInfo
+    public abstract partial class AnnotationInfo
     {
         /// <summary>
-        /// The type of the metadata.
+        /// The type of the annotation.
         /// </summary>
-        public ColumnType MetadataType;
+        public DataViewType AnnotationType;
         /// <summary>
-        /// The string identifier of the metadata. Some identifiers have special meaning,
+        /// The string identifier of the annotation. Some identifiers have special meaning,
         /// like "SlotNames", but any other identifiers can be used.
         /// </summary>
         public readonly string Kind;
@@ -817,63 +740,64 @@ namespace Microsoft.ML.Data
 
         internal abstract Delegate GetGetterDelegate();
 
-        protected MetadataInfo(string kind, ColumnType metadataType)
+        protected AnnotationInfo(string kind, DataViewType annotationType)
         {
-            Contracts.AssertValueOrNull(metadataType);
+            Contracts.AssertValueOrNull(annotationType);
             Contracts.AssertNonEmpty(kind);
+            AnnotationType = annotationType;
             Kind = kind;
         }
     }
 
     /// <summary>
-    /// Strongly-typed version of <see cref="MetadataInfo"/>, that contains the actual value of the metadata.
+    /// Strongly-typed version of <see cref="AnnotationInfo"/>, that contains the actual value of the annotation.
     /// </summary>
-    /// <typeparam name="T">Type of the metadata value.</typeparam>
-    public sealed class MetadataInfo<T> : MetadataInfo
+    /// <typeparam name="T">Type of the annotation value.</typeparam>
+    public sealed class AnnotationInfo<T> : AnnotationInfo
     {
         public readonly T Value;
 
         /// <summary>
-        /// Constructor for metadata of value type T.
+        /// Constructor for annotation of value type T.
         /// </summary>
-        /// <param name="kind">The string identifier of the metadata. Some identifiers have special meaning,
+        /// <param name="kind">The string identifier of the annotation. Some identifiers have special meaning,
         /// like "SlotNames", but any other identifiers can be used.</param>
-        /// <param name="value">Metadata value.</param>
-        /// <param name="metadataType">Type of the metadata.</param>
-        public MetadataInfo(string kind, T value, ColumnType metadataType = null)
-            : base(kind, metadataType)
+        /// <param name="value">Annotation value.</param>
+        /// <param name="annotationType">Type of the annotation.</param>
+        public AnnotationInfo(string kind, T value, DataViewType annotationType = null)
+            : base(kind, annotationType)
         {
             Contracts.Assert(value != null);
             bool isVector;
-            DataKind dataKind;
-            InternalSchemaDefinition.GetVectorAndKind(typeof(T), "metadata value", out isVector, out dataKind);
+            Type itemType;
+            InternalSchemaDefinition.GetVectorAndItemType(typeof(T), "annotation value", out isVector, out itemType);
 
-            if (metadataType == null)
+            if (annotationType == null)
             {
                 // Infer a type as best we can.
-                var itemType = PrimitiveType.FromKind(dataKind);
-                metadataType = isVector ? new VectorType(itemType) : (ColumnType)itemType;
+                var primitiveItemType = ColumnTypeExtensions.PrimitiveTypeFromType(itemType);
+                annotationType = isVector ? new VectorType(primitiveItemType) : (DataViewType)primitiveItemType;
             }
             else
             {
                 // Make sure that the types are compatible with the declared type, including whether it is a vector type.
-                VectorType metadataVectorType = metadataType as VectorType;
-                bool metadataIsVector = metadataVectorType != null;
-                if (isVector != metadataIsVector)
+                VectorType annotationVectorType = annotationType as VectorType;
+                bool annotationIsVector = annotationVectorType != null;
+                if (isVector != annotationIsVector)
                 {
-                    throw Contracts.Except("Value inputted is supposed to be {0}, but type of Metadatainfo is {1}",
-                        isVector ? "vector" : "scalar", metadataIsVector ? "vector" : "scalar");
+                    throw Contracts.Except("Value inputted is supposed to be {0}, but type of Annotationinfo is {1}",
+                        isVector ? "vector" : "scalar", annotationIsVector ? "vector" : "scalar");
                 }
 
-                ColumnType metadataItemType = metadataVectorType?.ItemType ?? metadataType;
-                if (dataKind != metadataItemType.RawKind)
+                DataViewType annotationItemType = annotationVectorType?.ItemType ?? annotationType;
+                if (itemType != annotationItemType.RawType)
                 {
                     throw Contracts.Except(
-                        "Value inputted is supposed to have dataKind {0}, but type of Metadatainfo has {1}",
-                        dataKind.ToString(), metadataItemType.RawKind.ToString());
+                        "Value inputted is supposed to have Type {0}, but type of Annotationinfo has {1}",
+                        itemType.ToString(), annotationItemType.RawType.ToString());
                 }
             }
-            MetadataType = metadataType;
+            AnnotationType = annotationType;
             Value = value;
         }
 
@@ -882,7 +806,7 @@ namespace Microsoft.ML.Data
             var typeT = typeof(T);
             if (typeT.IsArray)
             {
-                Contracts.Assert(MetadataType is VectorType);
+                Contracts.Assert(AnnotationType is VectorType);
                 Contracts.Check(typeof(TDst).IsGenericType && typeof(TDst).GetGenericTypeDefinition() == typeof(VBuffer<>));
                 var itemType = typeT.GetElementType();
                 var dstItemType = typeof(TDst).GetGenericArguments()[0];
@@ -904,7 +828,7 @@ namespace Microsoft.ML.Data
                 return srcMethod.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(dstItemType)
                     .Invoke(this, new object[] { }) as ValueGetter<TDst>;
             }
-            if (MetadataType is VectorType metadataVectorType)
+            if (AnnotationType is VectorType annotationVectorType)
             {
                 // VBuffer<T> -> VBuffer<T>
                 // REVIEW: Do we care about accomodating VBuffer<string> -> VBuffer<ReadOnlyMemory<char>>?
@@ -915,25 +839,25 @@ namespace Microsoft.ML.Data
                 Contracts.Check(typeof(TDst).GetGenericTypeDefinition() == typeof(VBuffer<>));
                 var dstItemType = typeof(TDst).GetGenericArguments()[0];
                 var itemType = typeT.GetGenericArguments()[0];
-                Contracts.Assert(itemType == metadataVectorType.ItemType.RawType);
+                Contracts.Assert(itemType == annotationVectorType.ItemType.RawType);
                 Contracts.Check(itemType == dstItemType);
 
                 Func<ValueGetter<VBuffer<int>>> srcMethod = GetVBufferGetter<int>;
                 return srcMethod.GetMethodInfo().GetGenericMethodDefinition()
-                    .MakeGenericMethod(metadataVectorType.ItemType.RawType)
+                    .MakeGenericMethod(annotationVectorType.ItemType.RawType)
                     .Invoke(this, new object[] { }) as ValueGetter<TDst>;
             }
-            if (MetadataType is PrimitiveType)
+            if (AnnotationType is PrimitiveDataViewType)
             {
                 if (typeT == typeof(string))
                 {
                     // String -> ReadOnlyMemory<char>
-                    Contracts.Assert(MetadataType is TextType);
+                    Contracts.Assert(AnnotationType is TextDataViewType);
                     ValueGetter<ReadOnlyMemory<char>> m = GetString;
                     return m as ValueGetter<TDst>;
                 }
                 // T -> T
-                Contracts.Assert(MetadataType.RawType == typeT);
+                Contracts.Assert(AnnotationType.RawType == typeT);
                 return GetDirectValue;
             }
             throw Contracts.ExceptNotImpl("Type '{0}' is not yet supported.", typeT.FullName);
@@ -947,11 +871,7 @@ namespace Microsoft.ML.Data
 
         internal override Delegate GetGetterDelegate()
         {
-            return Utils.MarshalInvoke(GetGetterCore<int>, MetadataType.RawType);
-        }
-
-        public class TElement
-        {
+            return Utils.MarshalInvoke(GetGetterCore<int>, AnnotationType.RawType);
         }
 
         private void GetStringArray(ref VBuffer<ReadOnlyMemory<char>> dst)

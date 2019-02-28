@@ -4,17 +4,19 @@
 
 using System.IO;
 using System.Text;
+using Microsoft.Data.DataView;
+using Microsoft.ML.Calibrators;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
 using Microsoft.ML.EntryPoints;
-using Microsoft.ML.Internal.Calibration;
-using Microsoft.ML.Internal.Internallearn;
+using Microsoft.ML.Model;
 
 [assembly: EntryPointModule(typeof(SummarizePredictor))]
 
 namespace Microsoft.ML.EntryPoints
 {
-    public static class SummarizePredictor
+    [BestFriend]
+    internal static class SummarizePredictor
     {
         public abstract class InputBase
         {
@@ -46,11 +48,11 @@ namespace Microsoft.ML.EntryPoints
         [BestFriend]
         internal static IDataView GetSummaryAndStats(IHostEnvironment env, IPredictor predictor, RoleMappedSchema schema, out IDataView stats)
         {
-            var calibrated = predictor as CalibratedPredictorBase;
+            var calibrated = predictor as IWeaklyTypedCalibratedModelParameters;
             while (calibrated != null)
             {
-                predictor = calibrated.SubPredictor;
-                calibrated = predictor as CalibratedPredictorBase;
+                predictor = calibrated.WeeklyTypedSubModel;
+                calibrated = predictor as IWeaklyTypedCalibratedModelParameters;
             }
 
             IDataView summary = null;

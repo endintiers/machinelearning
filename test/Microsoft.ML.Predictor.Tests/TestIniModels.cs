@@ -2,19 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading;
-using Microsoft.ML;
 using Microsoft.ML.Data;
-using Microsoft.ML.Internal.Calibration;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Internal.Internallearn;
-using Microsoft.ML.Trainers.FastTree;
-using Microsoft.ML.Tools;
 using Xunit;
 using Xunit.Abstractions;
+using Microsoft.ML.Model;
 
 namespace Microsoft.ML.RunTests
 {
@@ -521,16 +516,16 @@ namespace Microsoft.ML.RunTests
         public void TestGamRegressionIni()
         {
             var mlContext = new MLContext(seed: 0);
-            var idv = mlContext.Data.CreateTextReader(
-                    new TextLoader.Arguments()
+            var idv = mlContext.Data.CreateTextLoader(
+                    new TextLoader.Options()
                     {
                         HasHeader = false,
-                        Column = new[]
+                        Columns = new[]
                         {
-                            new TextLoader.Column("Label", DataKind.R4, 0),
-                            new TextLoader.Column("Features", DataKind.R4, 1, 9)
+                            new TextLoader.Column("Label", DataKind.Single, 0),
+                            new TextLoader.Column("Features", DataKind.Single, 1, 9)
                         }
-                    }).Read(GetDataPath("breast-cancer.txt"));
+                    }).Load(GetDataPath("breast-cancer.txt"));
 
             var pipeline = mlContext.Transforms.ReplaceMissingValues("Features")
                 .Append(mlContext.Regression.Trainers.GeneralizedAdditiveModels());
@@ -550,9 +545,9 @@ namespace Microsoft.ML.RunTests
 
             // Getting parity results from maml.exe:
             // maml.exe ini ini=model.ini out=model_ini.zip data=breast-cancer.txt  loader=TextLoader{col=Label:R4:0 col=Features:R4:1-9} xf=NAHandleTransform{col=Features slot=- ind=-} kind=Regression
-            Assert.Equal(0.093256807643323947, results.L1);
-            Assert.Equal(0.025707474358979077, results.L2);
-            Assert.Equal(0.16033550560926635, results.Rms);
+            Assert.Equal(0.093256807643323947, results.MeanAbsoluteError);
+            Assert.Equal(0.025707474358979077, results.MeanSquaredError);
+            Assert.Equal(0.16033550560926635, results.RootMeanSquaredError);
             Assert.Equal(0.88620288753853549, results.RSquared);
         }
 
@@ -560,16 +555,16 @@ namespace Microsoft.ML.RunTests
         public void TestGamBinaryClassificationIni()
         {
             var mlContext = new MLContext(seed: 0);
-            var idv = mlContext.Data.CreateTextReader(
-                    new TextLoader.Arguments()
+            var idv = mlContext.Data.CreateTextLoader(
+                    new TextLoader.Options()
                     {
                         HasHeader = false,
-                        Column = new[]
+                        Columns = new[]
                         {
-                            new TextLoader.Column("Label", DataKind.BL, 0),
-                            new TextLoader.Column("Features", DataKind.R4, 1, 9)
+                            new TextLoader.Column("Label", DataKind.Boolean, 0),
+                            new TextLoader.Column("Features", DataKind.Single, 1, 9)
                         }
-                    }).Read(GetDataPath("breast-cancer.txt"));
+                    }).Load(GetDataPath("breast-cancer.txt"));
 
             var pipeline = mlContext.Transforms.ReplaceMissingValues("Features")
                 .Append(mlContext.BinaryClassification.Trainers.GeneralizedAdditiveModels());
@@ -580,8 +575,8 @@ namespace Microsoft.ML.RunTests
                 new KeyValuePair<RoleMappedSchema.ColumnRole, string>(RoleMappedSchema.ColumnRole.Feature, "Features"),
                 new KeyValuePair<RoleMappedSchema.ColumnRole, string>(RoleMappedSchema.ColumnRole.Label, "Label"));
 
-            var calibratedPredictor = model.LastTransformer.Model as CalibratedPredictor;
-            var predictor = calibratedPredictor.SubPredictor as ICanSaveInIniFormat;
+            var calibratedPredictor = model.LastTransformer.Model;
+            var predictor = calibratedPredictor.SubModel as ICanSaveInIniFormat;
             string modelIniPath = GetOutputPath(FullTestName + "-model.ini");
 
             using (Stream iniStream = File.Create(modelIniPath))
@@ -592,7 +587,7 @@ namespace Microsoft.ML.RunTests
 
             // Getting parity results from maml.exe:
             // maml.exe ini ini=model.ini out=model_ini.zip data=breast-cancer.txt  loader=TextLoader{col=Label:R4:0 col=Features:R4:1-9} xf=NAHandleTransform{col=Features slot=- ind=-} kind=Binary
-            Assert.Equal(0.99545199224483139, results.Auc);
+            Assert.Equal(0.99545199224483139, results.AreaUnderRocCurve);
             Assert.Equal(0.96995708154506433, results.Accuracy);
             Assert.Equal(0.95081967213114749, results.PositivePrecision);
             Assert.Equal(0.96265560165975106, results.PositiveRecall);

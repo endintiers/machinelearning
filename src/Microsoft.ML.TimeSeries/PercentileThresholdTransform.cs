@@ -3,26 +3,27 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
 using Microsoft.ML.EntryPoints;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Model;
-using Microsoft.ML.TimeSeriesProcessing;
+using Microsoft.ML.Transforms.TimeSeries;
 
 [assembly: LoadableClass(PercentileThresholdTransform.Summary, typeof(PercentileThresholdTransform), typeof(PercentileThresholdTransform.Arguments), typeof(SignatureDataTransform),
     PercentileThresholdTransform.UserName, PercentileThresholdTransform.LoaderSignature, PercentileThresholdTransform.ShortName)]
 [assembly: LoadableClass(PercentileThresholdTransform.Summary, typeof(PercentileThresholdTransform), null, typeof(SignatureLoadDataTransform),
     PercentileThresholdTransform.UserName, PercentileThresholdTransform.LoaderSignature)]
 
-namespace Microsoft.ML.TimeSeriesProcessing
+namespace Microsoft.ML.Transforms.TimeSeries
 {
     /// <summary>
     /// PercentileThresholdTransform is a sequential transform that decides whether the current value of the time-series belongs to the 'percentile' % of the top values in
     /// the sliding window. The output of the transform will be a boolean flag.
     /// </summary>
-    public sealed class PercentileThresholdTransform : SequentialTransformBase<Single, bool, PercentileThresholdTransform.State>
+    internal sealed class PercentileThresholdTransform : SequentialTransformBase<Single, bool, PercentileThresholdTransform.State>
     {
         public const string Summary = "Detects the values of time-series that are in the top percentile of the sliding window.";
         public const string LoaderSignature = "PercentThrTransform";
@@ -66,7 +67,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
         private readonly Double _percentile;
 
         public PercentileThresholdTransform(IHostEnvironment env, Arguments args, IDataView input)
-            : base(args.WindowSize, args.WindowSize, args.Source, args.Name, LoaderSignature, env, input)
+            : base(args.WindowSize, args.WindowSize, args.Name, args.Source, LoaderSignature, env, input)
         {
             Host.CheckUserArg(args.WindowSize >= 1, nameof(args.WindowSize), "The size of the sliding window should be at least 1.");
             Host.CheckUserArg(MinPercentile <= args.Percentile && args.Percentile <= MaxPercentile, nameof(args.Percentile), "The percentile value should be in [0, 100].");
@@ -85,7 +86,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
             Host.CheckDecode(MinPercentile <= _percentile && _percentile <= MaxPercentile);
         }
 
-        public override void Save(ModelSaveContext ctx)
+        private protected override void SaveModel(ModelSaveContext ctx)
         {
             Host.CheckValue(ctx, nameof(ctx));
             Host.Assert(MinPercentile <= _percentile && _percentile <= MaxPercentile);
@@ -97,7 +98,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
             // <base>
             // Double: _percentile
 
-            base.Save(ctx);
+            base.SaveModel(ctx);
             ctx.Writer.Write(_percentile);
         }
 

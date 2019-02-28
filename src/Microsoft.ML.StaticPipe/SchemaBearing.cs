@@ -3,9 +3,7 @@
 // See the LICENSE file in the project root for more information.
 
 using System.Threading;
-using Microsoft.ML.Core.Data;
 using Microsoft.ML.Data;
-using Microsoft.ML.StaticPipe.Runtime;
 
 namespace Microsoft.ML.StaticPipe
 {
@@ -26,10 +24,11 @@ namespace Microsoft.ML.StaticPipe
         /// </summary>
         internal StaticPipeUtils.IndexHelper<TShape> Indexer
         {
-            get {
-                if (_indexer == null)
-                    Interlocked.CompareExchange(ref _indexer, new StaticPipeUtils.IndexHelper<TShape>(this), null);
-                return _indexer;
+            get
+            {
+                return _indexer ??
+                    Interlocked.CompareExchange(ref _indexer, new StaticPipeUtils.IndexHelper<TShape>(this), null) ??
+                    _indexer;
             }
         }
 

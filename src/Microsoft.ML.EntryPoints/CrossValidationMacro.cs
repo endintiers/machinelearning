@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
@@ -20,7 +21,7 @@ namespace Microsoft.ML.EntryPoints
     /// <summary>
     /// This macro entry point implements cross validation.
     /// </summary>
-    public static class CrossValidationMacro
+    internal static class CrossValidationMacro
     {
         public sealed class SubGraphInput
         {
@@ -374,7 +375,7 @@ namespace Microsoft.ML.EntryPoints
                 var dvBldr = new ArrayDataViewBuilder(env);
                 var warn = $"Detected columns of variable length: {string.Join(", ", variableSizeVectorColumnNames)}." +
                     $" Consider setting collateMetrics- for meaningful per-Folds results.";
-                dvBldr.AddColumn(MetricKinds.ColumnNames.WarningText, TextType.Instance, warn.AsMemory());
+                dvBldr.AddColumn(MetricKinds.ColumnNames.WarningText, TextDataViewType.Instance, warn.AsMemory());
                 warnings.Add(dvBldr.GetDataView());
             }
 
@@ -386,7 +387,7 @@ namespace Microsoft.ML.EntryPoints
             IDataView conf = null;
             if (Utils.Size(input.ConfusionMatrix) > 0)
             {
-                EvaluateUtils.ReconcileSlotNames<double>(env, input.ConfusionMatrix, MetricKinds.ColumnNames.Count, NumberType.R8);
+                EvaluateUtils.ReconcileSlotNames<double>(env, input.ConfusionMatrix, MetricKinds.ColumnNames.Count, NumberDataViewType.Double);
 
                 for (int i = 0; i < input.ConfusionMatrix.Length; i++)
                 {
@@ -398,7 +399,7 @@ namespace Microsoft.ML.EntryPoints
                             idv.Schema[col].Name.Equals(MetricKinds.ColumnNames.Count))
                         {
                             input.ConfusionMatrix[i] = new ChooseColumnsByIndexTransform(env,
-                                new ChooseColumnsByIndexTransform.Arguments() { Drop = true, Index = new[] { col } }, idv);
+                                new ChooseColumnsByIndexTransform.Options() { Drop = true, Indices = new[] { col } }, idv);
                             break;
                         }
                     }
@@ -429,7 +430,7 @@ namespace Microsoft.ML.EntryPoints
             case MacroUtils.TrainerKinds.SignatureRegressorTrainer:
                 return new RegressionMamlEvaluator(env, new RegressionMamlEvaluator.Arguments());
             case MacroUtils.TrainerKinds.SignatureRankerTrainer:
-                return new RankerMamlEvaluator(env, new RankerMamlEvaluator.Arguments());
+                return new RankingMamlEvaluator(env, new RankingMamlEvaluator.Arguments());
             case MacroUtils.TrainerKinds.SignatureAnomalyDetectorTrainer:
                 return new AnomalyDetectionMamlEvaluator(env, new AnomalyDetectionMamlEvaluator.Arguments());
             case MacroUtils.TrainerKinds.SignatureClusteringTrainer:
@@ -442,4 +443,3 @@ namespace Microsoft.ML.EntryPoints
         }
     }
 }
-#pragma warning restore 612

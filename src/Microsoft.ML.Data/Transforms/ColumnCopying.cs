@@ -6,18 +6,18 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
-using Microsoft.ML.Core.Data;
 using Microsoft.ML.Data;
 using Microsoft.ML.EntryPoints;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Model;
-using Microsoft.ML.Model.Onnx;
+using Microsoft.ML.Model.OnnxConverter;
 using Microsoft.ML.Transforms;
 
 [assembly: LoadableClass(ColumnCopyingTransformer.Summary, typeof(IDataTransform), typeof(ColumnCopyingTransformer),
-    typeof(ColumnCopyingTransformer.Arguments), typeof(SignatureDataTransform),
+    typeof(ColumnCopyingTransformer.Options), typeof(SignatureDataTransform),
     ColumnCopyingTransformer.UserName, "CopyColumns", "CopyColumnsTransform", ColumnCopyingTransformer.ShortName,
     DocName = "transform/CopyColumnsTransformer.md")]
 
@@ -32,29 +32,38 @@ using Microsoft.ML.Transforms;
 
 namespace Microsoft.ML.Transforms
 {
+    /// <summary>
+    /// <see cref="ColumnCopyingEstimator"/> copies the input column to another column named as specified in the parameters of the transformation.
+    /// </summary>
     public sealed class ColumnCopyingEstimator : TrivialEstimator<ColumnCopyingTransformer>
     {
-        public ColumnCopyingEstimator(IHostEnvironment env, string input, string output) :
-            this(env, (input, output))
+        [BestFriend]
+        internal ColumnCopyingEstimator(IHostEnvironment env, string outputColumnName, string inputColumnName) :
+            this(env, (outputColumnName, inputColumnName))
         {
         }
 
-        public ColumnCopyingEstimator(IHostEnvironment env, params (string input, string output)[] columns)
+        [BestFriend]
+        internal ColumnCopyingEstimator(IHostEnvironment env, params (string outputColumnName, string inputColumnName)[] columns)
             : base(Contracts.CheckRef(env, nameof(env)).Register(nameof(ColumnCopyingEstimator)), new ColumnCopyingTransformer(env, columns))
         {
         }
 
+        /// <summary>
+        /// Returns the <see cref="SchemaShape"/> of the schema which will be produced by the transformer.
+        /// Used for schema propagation and verification in a pipeline.
+        /// </summary>
         public override SchemaShape GetOutputSchema(SchemaShape inputSchema)
         {
             Host.CheckValue(inputSchema, nameof(inputSchema));
 
             var resultDic = inputSchema.ToDictionary(x => x.Name);
-            foreach (var (Source, Name) in Transformer.Columns)
+            foreach (var (outputColumnName, inputColumnName) in Transformer.Columns)
             {
-                if (!inputSchema.TryFindColumn(Source, out var originalColumn))
-                    throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", Source);
-                var col = new SchemaShape.Column(Name, originalColumn.Kind, originalColumn.ItemType, originalColumn.IsKey, originalColumn.Metadata);
-                resultDic[Name] = col;
+                if (!inputSchema.TryFindColumn(inputColumnName, out var originalColumn))
+                    throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", inputColumnName);
+                var col = new SchemaShape.Column(outputColumnName, originalColumn.Kind, originalColumn.ItemType, originalColumn.IsKey, originalColumn.Annotations);
+                resultDic[outputColumnName] = col;
             }
             return new SchemaShape(resultDic.Values);
         }
@@ -62,12 +71,16 @@ namespace Microsoft.ML.Transforms
 
     public sealed class ColumnCopyingTransformer : OneToOneTransformerBase
     {
-        public const string LoaderSignature = "CopyTransform";
+        [BestFriend]
+        internal const string LoaderSignature = "CopyTransform";
         internal const string Summary = "Copy a source column to a new column.";
         internal const string UserName = "Copy Columns Transform";
         internal const string ShortName = "Copy";
 
-        public IReadOnlyCollection<(string Input, string Output)> Columns => ColumnPairs.AsReadOnly();
+        /// <summary>
+        /// Names of output and input column pairs on which the transformation is applied.
+        /// </summary>
+        public IReadOnlyCollection<(string outputColumnName, string inputColumnName)> Columns => ColumnPairs.AsReadOnly();
 
         private static VersionInfo GetVersionInfo()
         {
@@ -80,14 +93,14 @@ namespace Microsoft.ML.Transforms
                 loaderAssemblyName: typeof(ColumnCopyingTransformer).Assembly.FullName);
         }
 
-        public ColumnCopyingTransformer(IHostEnvironment env, params (string input, string output)[] columns)
+        internal ColumnCopyingTransformer(IHostEnvironment env, params (string outputColumnName, string inputColumnName)[] columns)
             : base(Contracts.CheckRef(env, nameof(env)).Register(nameof(ColumnCopyingTransformer)), columns)
         {
         }
 
-        public sealed class Column : OneToOneColumn
+        internal sealed class Column : OneToOneColumn
         {
-            public static Column Parse(string str)
+            internal static Column Parse(string str)
             {
                 Contracts.AssertNonEmpty(str);
 
@@ -97,26 +110,27 @@ namespace Microsoft.ML.Transforms
                 return null;
             }
 
-            public bool TryUnparse(StringBuilder sb)
+            internal bool TryUnparse(StringBuilder sb)
             {
                 Contracts.AssertValue(sb);
                 return TryUnparseCore(sb);
             }
         }
 
-        public sealed class Arguments : TransformInputBase
+        internal sealed class Options : TransformInputBase
         {
-            [Argument(ArgumentType.Multiple | ArgumentType.Required, HelpText = "New column definition(s) (optional form: name:src)", ShortName = "col", SortOrder = 1)]
-            public Column[] Column;
+            [Argument(ArgumentType.Multiple | ArgumentType.Required, HelpText = "New column definition(s) (optional form: name:src)",
+                Name = "Column", ShortName = "col", SortOrder = 1)]
+            public Column[] Columns;
         }
 
         // Factory method corresponding to SignatureDataTransform.
-        internal static IDataTransform Create(IHostEnvironment env, Arguments args, IDataView input)
+        internal static IDataTransform Create(IHostEnvironment env, Options options, IDataView input)
         {
             Contracts.CheckValue(env, nameof(env));
-            env.CheckValue(args, nameof(args));
+            env.CheckValue(options, nameof(options));
 
-            var transformer = new ColumnCopyingTransformer(env, args.Column.Select(x => (x.Source, x.Name)).ToArray());
+            var transformer = new ColumnCopyingTransformer(env, options.Columns.Select(x => (x.Name, x.Source)).ToArray());
             return transformer.MakeDataTransform(input);
         }
 
@@ -134,11 +148,11 @@ namespace Microsoft.ML.Transforms
             //   string: input column name
 
             var length = ctx.Reader.ReadInt32();
-            var columns = new (string Input, string Output)[length];
+            var columns = new (string outputColumnName, string inputColumnName)[length];
             for (int i = 0; i < length; i++)
             {
-                columns[i].Output = ctx.LoadNonEmptyString();
-                columns[i].Input = ctx.LoadNonEmptyString();
+                columns[i].outputColumnName = ctx.LoadNonEmptyString();
+                columns[i].inputColumnName = ctx.LoadNonEmptyString();
             }
             return new ColumnCopyingTransformer(env, columns);
         }
@@ -148,53 +162,53 @@ namespace Microsoft.ML.Transforms
             => Create(env, ctx).MakeDataTransform(input);
 
         // Factory method for SignatureLoadRowMapper.
-        private static IRowMapper Create(IHostEnvironment env, ModelLoadContext ctx, Schema inputSchema)
+        private static IRowMapper Create(IHostEnvironment env, ModelLoadContext ctx, DataViewSchema inputSchema)
             => Create(env, ctx).MakeRowMapper(inputSchema);
 
-        public override void Save(ModelSaveContext ctx)
+        private protected override void SaveModel(ModelSaveContext ctx)
         {
             ctx.SetVersionInfo(GetVersionInfo());
             SaveColumns(ctx);
         }
 
-        private protected override IRowMapper MakeRowMapper(Schema inputSchema)
+        private protected override IRowMapper MakeRowMapper(DataViewSchema inputSchema)
             => new Mapper(this, inputSchema, ColumnPairs);
 
         private sealed class Mapper : OneToOneMapperBase, ISaveAsOnnx
         {
-            private readonly Schema _schema;
-            private readonly (string Input, string Output)[] _columns;
+            private readonly DataViewSchema _schema;
+            private readonly (string outputColumnName, string inputColumnName)[] _columns;
 
             public bool CanSaveOnnx(OnnxContext ctx) => ctx.GetOnnxVersion() == OnnxVersion.Experimental;
 
-            internal Mapper(ColumnCopyingTransformer parent, Schema inputSchema, (string Input, string Output)[] columns)
+            internal Mapper(ColumnCopyingTransformer parent, DataViewSchema inputSchema, (string outputColumnName, string inputColumnName)[] columns)
                 : base(parent.Host.Register(nameof(Mapper)), parent, inputSchema)
             {
                 _schema = inputSchema;
                 _columns = columns;
             }
 
-            protected override Delegate MakeGetter(Row input, int iinfo, Func<int, bool> activeOutput, out Action disposer)
+            protected override Delegate MakeGetter(DataViewRow input, int iinfo, Func<int, bool> activeOutput, out Action disposer)
             {
                 Host.AssertValue(input);
                 Host.Assert(0 <= iinfo && iinfo < _columns.Length);
                 disposer = null;
 
-                Delegate MakeGetter<T>(Row row, int index)
+                Delegate MakeGetter<T>(DataViewRow row, int index)
                     => input.GetGetter<T>(index);
 
-                input.Schema.TryGetColumnIndex(_columns[iinfo].Input, out int colIndex);
+                input.Schema.TryGetColumnIndex(_columns[iinfo].inputColumnName, out int colIndex);
                 var type = input.Schema[colIndex].Type;
                 return Utils.MarshalInvoke(MakeGetter<int>, type.RawType, input, colIndex);
             }
 
-            protected override Schema.DetachedColumn[] GetOutputColumnsCore()
+            protected override DataViewSchema.DetachedColumn[] GetOutputColumnsCore()
             {
-                var result = new Schema.DetachedColumn[_columns.Length];
+                var result = new DataViewSchema.DetachedColumn[_columns.Length];
                 for (int i = 0; i < _columns.Length; i++)
                 {
-                    var srcCol = _schema[_columns[i].Input];
-                    result[i] = new Schema.DetachedColumn(_columns[i].Output, srcCol.Type, srcCol.Metadata);
+                    var srcCol = _schema[_columns[i].inputColumnName];
+                    result[i] = new DataViewSchema.DetachedColumn(_columns[i].outputColumnName, srcCol.Type, srcCol.Annotations);
                 }
                 return result;
             }
@@ -205,9 +219,9 @@ namespace Microsoft.ML.Transforms
 
                 foreach (var column in _columns)
                 {
-                    var srcVariableName = ctx.GetVariableName(column.Input);
-                    _schema.TryGetColumnIndex(column.Input, out int colIndex);
-                    var dstVariableName = ctx.AddIntermediateVariable(_schema[colIndex].Type, column.Output);
+                    var srcVariableName = ctx.GetVariableName(column.inputColumnName);
+                    _schema.TryGetColumnIndex(column.inputColumnName, out int colIndex);
+                    var dstVariableName = ctx.AddIntermediateVariable(_schema[colIndex].Type, column.outputColumnName);
                     var node = ctx.CreateNode(opType, srcVariableName, dstVariableName, ctx.GetNodeName(opType));
                     node.AddAttribute("type", LoaderSignature);
                 }

@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Model;
 
@@ -15,7 +16,8 @@ namespace Microsoft.ML.Data
     ///  <see cref="GetPerInstanceMetricsCore"/>. Note that the input <see cref="RoleMappedData"/> is assumed to contain all the column
     /// roles needed for evaluation, including the score column.
     /// </summary>
-    public abstract partial class EvaluatorBase<TAgg> : IEvaluator
+    [BestFriend]
+    internal abstract partial class EvaluatorBase<TAgg> : IEvaluator
         where TAgg : EvaluatorBase<TAgg>.AggregatorBase
     {
         protected readonly IHost Host;
@@ -89,7 +91,7 @@ namespace Microsoft.ML.Data
         [BestFriend]
         private protected virtual Func<int, bool> GetActiveColsCore(RoleMappedSchema schema)
         {
-            var score = schema.GetUniqueColumn(MetadataUtils.Const.ScoreValueKind.Score);
+            var score = schema.GetUniqueColumn(AnnotationUtils.Const.ScoreValueKind.Score);
             int label = schema.Label?.Index ?? -1;
             int weight = schema.Weight?.Index ?? -1;
             return i => i == score.Index || i == label || i == weight;
@@ -127,7 +129,7 @@ namespace Microsoft.ML.Data
         // the metric. If there are stratified metrics, an additional column is added to the data view containing the
         // stratification value as text in the format "column x = y".
         private Dictionary<string, IDataView> ProcessData(IDataView data, RoleMappedSchema schema,
-            Func<int, bool> activeCols, TAgg aggregator, AggregatorDictionaryBase[] dictionaries)
+            Func<int, bool> activeColsIndices, TAgg aggregator, AggregatorDictionaryBase[] dictionaries)
         {
             Func<bool> finishPass =
                 () =>
@@ -140,6 +142,7 @@ namespace Microsoft.ML.Data
 
             bool needMorePasses = aggregator.Start();
 
+            var activeCols = data.Schema.Where(x => activeColsIndices(x.Index));
             // REVIEW: Add progress reporting.
             while (needMorePasses)
             {
@@ -264,7 +267,7 @@ namespace Microsoft.ML.Data
             /// This method should get the getters of the new IRow that are needed for the next pass.
             /// </summary>
             [BestFriend]
-            internal abstract void InitializeNextPass(Row row, RoleMappedSchema schema);
+            internal abstract void InitializeNextPass(DataViewRow row, RoleMappedSchema schema);
 
             /// <summary>
             /// Call the getters once, and process the input as necessary.
@@ -305,7 +308,7 @@ namespace Microsoft.ML.Data
                 if (Utils.Size(warnings) > 0)
                 {
                     var dvBldr = new ArrayDataViewBuilder(env);
-                    dvBldr.AddColumn(MetricKinds.ColumnNames.WarningText, TextType.Instance,
+                    dvBldr.AddColumn(MetricKinds.ColumnNames.WarningText, TextDataViewType.Instance,
                         warnings.Select(s => s.AsMemory()).ToArray());
                     dict.Add(MetricKinds.Warnings, dvBldr.GetDataView());
                 }
@@ -335,7 +338,7 @@ namespace Microsoft.ML.Data
         // When a new value is encountered, it uses a callback for creating a new aggregator.
         protected abstract class AggregatorDictionaryBase
         {
-            private protected Row Row;
+            private protected DataViewRow Row;
             private protected readonly Func<string, TAgg> CreateAgg;
             private protected readonly RoleMappedSchema Schema;
 
@@ -357,24 +360,24 @@ namespace Microsoft.ML.Data
             /// <summary>
             /// Gets the stratification column getter for the new IRow.
             /// </summary>
-            public abstract void Reset(Row row);
+            public abstract void Reset(DataViewRow row);
 
-            internal static AggregatorDictionaryBase Create(RoleMappedSchema schema, string stratCol, ColumnType stratType,
+            internal static AggregatorDictionaryBase Create(RoleMappedSchema schema, string stratCol, DataViewType stratType,
                 Func<string, TAgg> createAgg)
             {
                 Contracts.AssertNonWhiteSpace(stratCol);
                 Contracts.AssertValue(createAgg);
 
-                if (stratType.GetKeyCount() == 0 && !(stratType is TextType))
+                if (stratType.GetKeyCount() == 0 && !(stratType is TextDataViewType))
                 {
-                    throw Contracts.ExceptUserArg(nameof(MamlEvaluatorBase.ArgumentsBase.StratColumn),
-                        "Stratification column '{0}' has type '{1}', but must be a known count key or text", stratCol, stratType);
+                    throw Contracts.ExceptUserArg(nameof(MamlEvaluatorBase.ArgumentsBase.StratColumns),
+                        "Stratification column '{stratCol}' has type '{stratType}', but must be a known count key or text");
                 }
                 return Utils.MarshalInvoke(CreateDictionary<int>, stratType.RawType, schema, stratCol, stratType, createAgg);
             }
 
             private static AggregatorDictionaryBase CreateDictionary<TStrat>(RoleMappedSchema schema, string stratCol,
-                ColumnType stratType, Func<string, TAgg> createAgg)
+                DataViewType stratType, Func<string, TAgg> createAgg)
             {
                 return new GenericAggregatorDictionary<TStrat>(schema, stratCol, stratType, createAgg);
             }
@@ -401,14 +404,14 @@ namespace Microsoft.ML.Data
 
                 public override int Count { get { return _dict.Count; } }
 
-                public GenericAggregatorDictionary(RoleMappedSchema schema, string stratCol, ColumnType stratType, Func<string, TAgg> createAgg)
+                public GenericAggregatorDictionary(RoleMappedSchema schema, string stratCol, DataViewType stratType, Func<string, TAgg> createAgg)
                     : base(schema, stratCol, createAgg)
                 {
                     Contracts.Assert(stratType.RawType == typeof(TStrat));
                     _dict = new Dictionary<TStrat, TAgg>();
                 }
 
-                public override void Reset(Row row)
+                public override void Reset(DataViewRow row)
                 {
                     Row = row;
                     int col;
@@ -443,7 +446,8 @@ namespace Microsoft.ML.Data
         }
     }
 
-    public abstract class RowToRowEvaluatorBase<TAgg> : EvaluatorBase<TAgg>
+    [BestFriend]
+    internal abstract class RowToRowEvaluatorBase<TAgg> : EvaluatorBase<TAgg>
         where TAgg : EvaluatorBase<TAgg>.AggregatorBase
     {
         [BestFriend]
@@ -465,7 +469,8 @@ namespace Microsoft.ML.Data
     /// <summary>
     /// This is a helper class for creating the per-instance IDV.
     /// </summary>
-    public abstract class PerInstanceEvaluatorBase : IRowMapper
+    [BestFriend]
+    internal abstract class PerInstanceEvaluatorBase : IRowMapper
     {
         protected readonly IHost Host;
         protected readonly string ScoreCol;
@@ -473,7 +478,7 @@ namespace Microsoft.ML.Data
         protected readonly int ScoreIndex;
         protected readonly int LabelIndex;
 
-        protected PerInstanceEvaluatorBase(IHostEnvironment env, Schema schema, string scoreCol, string labelCol)
+        protected PerInstanceEvaluatorBase(IHostEnvironment env, DataViewSchema schema, string scoreCol, string labelCol)
         {
             Contracts.AssertValue(env);
             Contracts.AssertNonEmpty(scoreCol);
@@ -483,12 +488,12 @@ namespace Microsoft.ML.Data
             LabelCol = labelCol;
 
             if (!string.IsNullOrEmpty(LabelCol) && !schema.TryGetColumnIndex(LabelCol, out LabelIndex))
-                throw Host.Except("Did not find the label column '{0}'", LabelCol);
+                throw Host.ExceptSchemaMismatch(nameof(schema), "label", LabelCol);
             if (!schema.TryGetColumnIndex(ScoreCol, out ScoreIndex))
-                throw Host.Except("Did not find column '{0}'", ScoreCol);
+                throw Host.ExceptSchemaMismatch(nameof(schema), "score", ScoreCol);
         }
 
-        protected PerInstanceEvaluatorBase(IHostEnvironment env, ModelLoadContext ctx,  Schema schema)
+        protected PerInstanceEvaluatorBase(IHostEnvironment env, ModelLoadContext ctx,  DataViewSchema schema)
         {
             Host = env.Register("PerInstanceRowMapper");
 
@@ -499,12 +504,17 @@ namespace Microsoft.ML.Data
             ScoreCol = ctx.LoadNonEmptyString();
             LabelCol = ctx.LoadStringOrNull();
             if (!string.IsNullOrEmpty(LabelCol) && !schema.TryGetColumnIndex(LabelCol, out LabelIndex))
-                throw Host.Except($"Did not find the label column '{LabelCol}'");
+                throw Host.ExceptSchemaMismatch(nameof(schema), "label", LabelCol);
             if (!schema.TryGetColumnIndex(ScoreCol, out ScoreIndex))
-                throw Host.Except($"Did not find column '{ScoreCol}'");
+                throw Host.ExceptSchemaMismatch(nameof(schema), "score", ScoreCol);
         }
 
-        public virtual void Save(ModelSaveContext ctx)
+        void ICanSaveModel.Save(ModelSaveContext ctx) => SaveModel(ctx);
+
+        /// <summary>
+        /// Derived class, for example A, should overwrite <see cref="SaveModel"/> so that ((<see cref="ICanSaveModel"/>)A).Save(ctx) can correctly dump A.
+        /// </summary>
+        private protected virtual void SaveModel(ModelSaveContext ctx)
         {
             // *** Binary format **
             // int: Id of the score column name
@@ -520,16 +530,21 @@ namespace Microsoft.ML.Data
         [BestFriend]
         private protected abstract Func<int, bool> GetDependenciesCore(Func<int, bool> activeOutput);
 
-        Schema.DetachedColumn[] IRowMapper.GetOutputColumns()
+        DataViewSchema.DetachedColumn[] IRowMapper.GetOutputColumns()
             => GetOutputColumnsCore();
 
         [BestFriend]
-        private protected abstract Schema.DetachedColumn[] GetOutputColumnsCore();
+        private protected abstract DataViewSchema.DetachedColumn[] GetOutputColumnsCore();
 
-        Delegate[] IRowMapper.CreateGetters(Row input, Func<int, bool> activeCols, out Action disposer)
+        Delegate[] IRowMapper.CreateGetters(DataViewRow input, Func<int, bool> activeCols, out Action disposer)
             => CreateGettersCore(input, activeCols, out disposer);
 
         [BestFriend]
-        private protected abstract Delegate[] CreateGettersCore(Row input, Func<int, bool> activeCols, out Action disposer);
+        private protected abstract Delegate[] CreateGettersCore(DataViewRow input, Func<int, bool> activeCols, out Action disposer);
+
+        public ITransformer GetTransformer()
+        {
+            throw Host.ExceptNotSupp();
+        }
     }
 }

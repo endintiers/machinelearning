@@ -5,17 +5,17 @@ using Microsoft.ML.Transforms.Text;
 
 namespace Microsoft.ML.Samples.Dynamic
 {
-    public class TextTransformExample
+    public static class TextTransform
     {
-        public static void TextTransform()
+        public static void Example()
         {
             // Create a new ML context, for ML.NET operations. It can be used for exception tracking and logging, 
             // as well as the source of randomness.
             var ml = new MLContext();
 
             // Get a small dataset as an IEnumerable and convert to IDataView.
-            IEnumerable<SamplesUtils.DatasetUtils.SampleSentimentData> data = SamplesUtils.DatasetUtils.GetSentimentData();
-            var trainData = ml.CreateStreamingDataView(data);
+            var data = SamplesUtils.DatasetUtils.GetSentimentData();
+            var trainData = ml.Data.LoadFromEnumerable(data);
 
             // Preview of the data.
             //
@@ -27,16 +27,16 @@ namespace Microsoft.ML.Samples.Dynamic
             // A pipeline for featurization of the "SentimentText" column, and placing the output in a new column named "DefaultTextFeatures"
             // The pipeline uses the default settings to featurize.
             string defaultColumnName = "DefaultTextFeatures";
-            var default_pipeline = ml.Transforms.Text.FeaturizeText("SentimentText", defaultColumnName);
+            var default_pipeline = ml.Transforms.Text.FeaturizeText(defaultColumnName , "SentimentText");
 
             // Another pipeline, that customizes the advanced settings of the FeaturizeText transformer.
             string customizedColumnName = "CustomizedTextFeatures";
-            var customized_pipeline = ml.Transforms.Text.FeaturizeText("SentimentText", customizedColumnName, s =>
-            {
-                s.KeepPunctuations = false;
-                s.KeepNumbers = false;
-                s.OutputTokens = true;
-                s.TextLanguage = TextFeaturizingEstimator.Language.English; // supports  English, French, German, Dutch, Italian, Spanish, Japanese
+            var customized_pipeline = ml.Transforms.Text.FeaturizeText(customizedColumnName, new List<string> { "SentimentText" }, 
+                new TextFeaturizingEstimator.Options { 
+                    KeepPunctuations = false,
+                    KeepNumbers = false,
+                    OutputTokens = true,
+                    TextLanguage = TextFeaturizingEstimator.Language.English, // supports  English, French, German, Dutch, Italian, Spanish, Japanese
             });
 
             // The transformed data for both pipelines.
@@ -58,7 +58,7 @@ namespace Microsoft.ML.Samples.Dynamic
             };
 
             // Preview of the DefaultTextFeatures column obtained after processing the input.
-            var defaultColumn = transformedData_default.GetColumn<VBuffer<float>>(ml, defaultColumnName);
+            var defaultColumn = transformedData_default.GetColumn<VBuffer<float>>(transformedData_default.Schema[defaultColumnName]);
             printHelper(defaultColumnName, defaultColumn);
 
             // DefaultTextFeatures column obtained post-transformation.
@@ -68,7 +68,7 @@ namespace Microsoft.ML.Samples.Dynamic
             // 0 0.1230915 0.1230915 0.1230915 0.1230915 0.246183 0.246183 0.246183 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.1230915 0 0 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.3692745 0.246183 0.246183 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.246183 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.1230915 0.2886751 0 0 0 0 0 0 0 0.2886751 0.5773503 0.2886751 0.2886751 0.2886751 0.2886751 0.2886751 0.2886751
 
             // Preview of the CustomizedTextFeatures column obtained after processing the input.
-            var customizedColumn = transformedData_customized.GetColumn<VBuffer<float>>(ml, customizedColumnName);
+            var customizedColumn = transformedData_customized.GetColumn<VBuffer<float>>(transformedData_customized.Schema[customizedColumnName]);
             printHelper(customizedColumnName, customizedColumn);
 
             // CustomizedTextFeatures column obtained post-transformation.

@@ -5,8 +5,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Microsoft.Data.DataView;
 using Microsoft.ML.CommandLine;
-using Microsoft.ML.Core.Data;
 using Microsoft.ML.Model;
 
 namespace Microsoft.ML.Data
@@ -15,7 +15,8 @@ namespace Microsoft.ML.Data
     /// This class defines extension methods for an <see cref="IHostEnvironment"/> to facilitate creating
     /// components (loaders, transforms, trainers, scorers, evaluators, savers).
     /// </summary>
-    public static class ComponentCreation
+    [BestFriend]
+    internal static class ComponentCreation
     {
         /// <summary>
         /// Create a new data view which is obtained by appending all columns of all the source data views.
@@ -43,8 +44,7 @@ namespace Microsoft.ML.Data
         /// <param name="weight">The name of the weight column. Can be null.</param>
         /// <param name="custom">Additional column mapping to be passed to the trainer or scorer (specific to the prediction type). Can be null or empty.</param>
         /// <returns>The constructed examples.</returns>
-        [BestFriend]
-        internal static RoleMappedData CreateExamples(this IHostEnvironment env, IDataView data, string features, string label = null,
+        public static RoleMappedData CreateExamples(this IHostEnvironment env, IDataView data, string features, string label = null,
             string group = null, string weight = null, IEnumerable<KeyValuePair<RoleMappedSchema.ColumnRole, string>> custom = null)
         {
             Contracts.CheckValue(env, nameof(env));
@@ -58,59 +58,6 @@ namespace Microsoft.ML.Data
         }
 
         /// <summary>
-        /// Create a new <see cref="IDataView"/> over an in-memory collection of the items of user-defined type.
-        /// The user maintains ownership of the <paramref name="data"/> and the resulting data view will
-        /// never alter the contents of the <paramref name="data"/>.
-        /// Since <see cref="IDataView"/> is assumed to be immutable, the user is expected to not
-        /// modify the contents of <paramref name="data"/> while the data view is being actively cursored.
-        ///
-        /// One typical usage for in-memory data view could be: create the data view, train a predictor.
-        /// Once the predictor is fully trained, modify the contents of the underlying collection and
-        /// train another predictor.
-        /// </summary>
-        /// <typeparam name="TRow">The user-defined item type.</typeparam>
-        /// <param name="env">The host environment to use for data view creation.</param>
-        /// <param name="data">The data to wrap around.</param>
-        /// <param name="schemaDefinition">The optional schema definition of the data view to create. If <c>null</c>,
-        /// the schema definition is inferred from <typeparamref name="TRow"/>.</param>
-        /// <returns>The constructed <see cref="IDataView"/>.</returns>
-        public static IDataView CreateDataView<TRow>(this IHostEnvironment env, IList<TRow> data, SchemaDefinition schemaDefinition = null)
-            where TRow : class
-        {
-            Contracts.CheckValue(env, nameof(env));
-            env.CheckValue(data, nameof(data));
-            env.CheckValueOrNull(schemaDefinition);
-            return DataViewConstructionUtils.CreateFromList(env, data, schemaDefinition);
-        }
-
-        /// <summary>
-        /// Create a new <see cref="IDataView"/> over an enumerable of the items of user-defined type.
-        /// The user maintains ownership of the <paramref name="data"/> and the resulting data view will
-        /// never alter the contents of the <paramref name="data"/>.
-        /// Since <see cref="IDataView"/> is assumed to be immutable, the user is expected to support
-        /// multiple enumeration of the <paramref name="data"/> that would return the same results, unless
-        /// the user knows that the data will only be cursored once.
-        ///
-        /// One typical usage for streaming data view could be: create the data view that lazily loads data
-        /// as needed, then apply pre-trained transformations to it and cursor through it for transformation
-        /// results.
-        /// </summary>
-        /// <typeparam name="TRow">The user-defined item type.</typeparam>
-        /// <param name="env">The host environment to use for data view creation.</param>
-        /// <param name="data">The data to wrap around.</param>
-        /// <param name="schemaDefinition">The optional schema definition of the data view to create. If <c>null</c>,
-        /// the schema definition is inferred from <typeparamref name="TRow"/>.</param>
-        /// <returns>The constructed <see cref="IDataView"/>.</returns>
-        public static IDataView CreateStreamingDataView<TRow>(this IHostEnvironment env, IEnumerable<TRow> data, SchemaDefinition schemaDefinition = null)
-            where TRow : class
-        {
-            Contracts.CheckValue(env, nameof(env));
-            env.CheckValue(data, nameof(data));
-            env.CheckValueOrNull(schemaDefinition);
-            return DataViewConstructionUtils.CreateFromEnumerable(env, data, schemaDefinition);
-        }
-
-        /// <summary>
         /// Create an on-demand prediction engine.
         /// </summary>
         /// <param name="env">The host environment to use.</param>
@@ -118,7 +65,7 @@ namespace Microsoft.ML.Data
         /// <param name="ignoreMissingColumns">Whether to ignore missing columns in the data view.</param>
         /// <param name="inputSchemaDefinition">The optional input schema. If <c>null</c>, the schema is inferred from the <typeparamref name="TSrc"/> type.</param>
         /// <param name="outputSchemaDefinition">The optional output schema. If <c>null</c>, the schema is inferred from the <typeparamref name="TDst"/> type.</param>
-        internal static PredictionEngine<TSrc, TDst> CreatePredictionEngine<TSrc, TDst>(this IHostEnvironment env, ITransformer transformer,
+        public static PredictionEngine<TSrc, TDst> CreatePredictionEngine<TSrc, TDst>(this IHostEnvironment env, ITransformer transformer,
             bool ignoreMissingColumns = false, SchemaDefinition inputSchemaDefinition = null, SchemaDefinition outputSchemaDefinition = null)
             where TSrc : class
             where TDst : class, new()
@@ -152,23 +99,25 @@ namespace Microsoft.ML.Data
         /// <summary>
         /// Creates a data loader from the arguments object.
         /// </summary>
-        public static IDataLoader CreateLoader<TArgs>(this IHostEnvironment env, TArgs arguments, IMultiStreamSource files)
+        [BestFriend]
+        internal static ILegacyDataLoader CreateLoader<TArgs>(this IHostEnvironment env, TArgs arguments, IMultiStreamSource files)
             where TArgs : class, new()
         {
             Contracts.CheckValue(env, nameof(env));
             env.CheckValue(files, nameof(files));
-            return CreateCore<IDataLoader, TArgs, SignatureDataLoader>(env, arguments, files);
+            return CreateCore<ILegacyDataLoader, TArgs, SignatureDataLoader>(env, arguments, files);
         }
 
         /// <summary>
         /// Creates a data loader from the 'LoadName{settings}' string.
         /// </summary>
-        public static IDataLoader CreateLoader(this IHostEnvironment env, string settings, IMultiStreamSource files)
+        [BestFriend]
+        internal static ILegacyDataLoader CreateLoader(this IHostEnvironment env, string settings, IMultiStreamSource files)
         {
             Contracts.CheckValue(env, nameof(env));
             Contracts.CheckValue(files, nameof(files));
-            Type factoryType = typeof(IComponentFactory<IMultiStreamSource, IDataLoader>);
-            return CreateCore<IDataLoader>(env, factoryType, typeof(SignatureDataLoader), settings, files);
+            Type factoryType = typeof(IComponentFactory<IMultiStreamSource, ILegacyDataLoader>);
+            return CreateCore<ILegacyDataLoader>(env, factoryType, typeof(SignatureDataLoader), settings, files);
         }
 
         /// <summary>
@@ -223,7 +172,7 @@ namespace Microsoft.ML.Data
         /// additional information, for example, label names. If this is <c>null</c>, no information will be
         /// extracted.</param>
         /// <returns>The scored data.</returns>
-        internal static IDataScorerTransform CreateScorer(this IHostEnvironment env, string settings,
+        public static IDataScorerTransform CreateScorer(this IHostEnvironment env, string settings,
             RoleMappedData data, IPredictor predictor, RoleMappedSchema trainSchema = null)
         {
             Contracts.CheckValue(env, nameof(env));
@@ -254,8 +203,7 @@ namespace Microsoft.ML.Data
         /// additional information, for example, label names. If this is <c>null</c>, no information will be
         /// extracted.</param>
         /// <returns>The scored data.</returns>
-        [BestFriend]
-        internal static IDataScorerTransform CreateDefaultScorer(this IHostEnvironment env, RoleMappedData data,
+        public static IDataScorerTransform CreateDefaultScorer(this IHostEnvironment env, RoleMappedData data,
             IPredictor predictor, RoleMappedSchema trainSchema = null)
         {
             Contracts.CheckValue(env, nameof(env));
@@ -266,8 +214,7 @@ namespace Microsoft.ML.Data
             return ScoreUtils.GetScorer(predictor, data, env, trainSchema);
         }
 
-        [BestFriend]
-        internal static IEvaluator CreateEvaluator(this IHostEnvironment env, string settings)
+        public static IEvaluator CreateEvaluator(this IHostEnvironment env, string settings)
         {
             Contracts.CheckValue(env, nameof(env));
             env.CheckNonWhiteSpace(settings, nameof(settings));
@@ -285,14 +232,14 @@ namespace Microsoft.ML.Data
             return ModelFileUtils.LoadPredictorOrNull(env, modelStream);
         }
 
-        internal static ITrainer CreateTrainer<TArgs>(this IHostEnvironment env, TArgs arguments, out string loadName)
+        public static ITrainer CreateTrainer<TArgs>(this IHostEnvironment env, TArgs arguments, out string loadName)
             where TArgs : class, new()
         {
             Contracts.CheckValue(env, nameof(env));
             return CreateCore<ITrainer, TArgs, SignatureTrainer>(env, arguments, out loadName);
         }
 
-        internal static ITrainer CreateTrainer(this IHostEnvironment env, string settings, out string loadName)
+        public static ITrainer CreateTrainer(this IHostEnvironment env, string settings, out string loadName)
         {
             Contracts.CheckValue(env, nameof(env));
             return CreateCore<ITrainer>(env, typeof(SignatureTrainer), settings, out loadName);

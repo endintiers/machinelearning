@@ -4,13 +4,13 @@
 
 using System;
 using System.Text;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Model;
 using Microsoft.ML.Transforms;
-using Float = System.Single;
 
 [assembly: LoadableClass(typeof(MissingValueIndicatorTransform), typeof(MissingValueIndicatorTransform.Arguments), typeof(SignatureDataTransform),
     "", "MissingValueIndicatorTransform", "MissingValueTransform", "MissingTransform", "Missing")]
@@ -20,11 +20,11 @@ using Float = System.Single;
 
 namespace Microsoft.ML.Transforms
 {
-    public sealed class MissingValueIndicatorTransform : OneToOneTransformBase
+    internal sealed class MissingValueIndicatorTransform : OneToOneTransformBase
     {
         public sealed class Column : OneToOneColumn
         {
-            public static Column Parse(string str)
+            internal static Column Parse(string str)
             {
                 Contracts.AssertNonEmpty(str);
 
@@ -34,7 +34,7 @@ namespace Microsoft.ML.Transforms
                 return null;
             }
 
-            public bool TryUnparse(StringBuilder sb)
+            internal bool TryUnparse(StringBuilder sb)
             {
                 Contracts.AssertValue(sb);
                 return TryUnparseCore(sb);
@@ -43,8 +43,8 @@ namespace Microsoft.ML.Transforms
 
         public sealed class Arguments
         {
-            [Argument(ArgumentType.Multiple | ArgumentType.Required, HelpText = "New column definition(s) (optional form: name:src)", ShortName = "col", SortOrder = 1)]
-            public Column[] Column;
+            [Argument(ArgumentType.Multiple | ArgumentType.Required, HelpText = "New column definition(s) (optional form: name:src)", Name = "Column", ShortName = "col", SortOrder = 1)]
+            public Column[] Columns;
         }
 
         public const string LoaderSignature = "MissingIndicatorFunction";
@@ -74,11 +74,11 @@ namespace Microsoft.ML.Transforms
         /// Public constructor corresponding to SignatureDataTransform.
         /// </summary>
         public MissingValueIndicatorTransform(IHostEnvironment env, Arguments args, IDataView input)
-            : base(env, RegistrationName, Contracts.CheckRef(args, nameof(args)).Column,
+            : base(env, RegistrationName, Contracts.CheckRef(args, nameof(args)).Columns,
                 input, TestIsFloatItem)
         {
             Host.AssertNonEmpty(Infos);
-            Host.Assert(Infos.Length == Utils.Size(args.Column));
+            Host.Assert(Infos.Length == Utils.Size(args.Columns));
 
             _types = GetTypesAndMetadata();
         }
@@ -110,12 +110,12 @@ namespace Microsoft.ML.Transforms
                     // int: sizeof(Float)
                     // <remainder handled in ctors>
                     int cbFloat = ctx.Reader.ReadInt32();
-                    ch.CheckDecode(cbFloat == sizeof(Float));
+                    ch.CheckDecode(cbFloat == sizeof(float));
                     return new MissingValueIndicatorTransform(h, ctx, input);
                 });
         }
 
-        public override void Save(ModelSaveContext ctx)
+        private protected override void SaveModel(ModelSaveContext ctx)
         {
             Host.CheckValue(ctx, nameof(ctx));
             ctx.CheckAtModel();
@@ -124,7 +124,7 @@ namespace Microsoft.ML.Transforms
             // *** Binary format ***
             // int: sizeof(Float)
             // <base>
-            ctx.Writer.Write(sizeof(Float));
+            ctx.Writer.Write(sizeof(float));
             SaveBase(ctx);
         }
 
@@ -140,17 +140,17 @@ namespace Microsoft.ML.Transforms
                 Host.Check(type.GetValueCount() < int.MaxValue / 2);
 
                 if (!(type is VectorType vectorType))
-                    types[iinfo] = new VectorType(NumberType.Float, 2);
+                    types[iinfo] = new VectorType(NumberDataViewType.Single, 2);
                 else
                 {
-                    types[iinfo] = new VectorType(NumberType.Float, vectorType, 2);
+                    types[iinfo] = new VectorType(NumberDataViewType.Single, vectorType, 2);
 
                     // Produce slot names metadata iff the source has (valid) slot names.
                     VectorType typeNames;
                     if (!vectorType.IsKnownSize ||
-                        (typeNames = Source.Schema[Infos[iinfo].Source].Metadata.Schema.GetColumnOrNull(MetadataUtils.Kinds.SlotNames)?.Type as VectorType) == null ||
+                        (typeNames = Source.Schema[Infos[iinfo].Source].Annotations.Schema.GetColumnOrNull(AnnotationUtils.Kinds.SlotNames)?.Type as VectorType) == null ||
                         typeNames.Size != vectorType.Size ||
-                        !(typeNames.ItemType is TextType))
+                        !(typeNames.ItemType is TextDataViewType))
                     {
                         continue;
                     }
@@ -159,15 +159,15 @@ namespace Microsoft.ML.Transforms
                 // Add slot names metadata.
                 using (var bldr = md.BuildMetadata(iinfo))
                 {
-                    bldr.AddGetter<VBuffer<ReadOnlyMemory<char>>>(MetadataUtils.Kinds.SlotNames,
-                        MetadataUtils.GetNamesType(types[iinfo].Size), GetSlotNames);
+                    bldr.AddGetter<VBuffer<ReadOnlyMemory<char>>>(AnnotationUtils.Kinds.SlotNames,
+                        AnnotationUtils.GetNamesType(types[iinfo].Size), GetSlotNames);
                 }
             }
             md.Seal();
             return types;
         }
 
-        protected override ColumnType GetColumnTypeCore(int iinfo)
+        protected override DataViewType GetColumnTypeCore(int iinfo)
         {
             Host.Assert(0 <= iinfo & iinfo < Infos.Length);
             return _types[iinfo];
@@ -179,7 +179,7 @@ namespace Microsoft.ML.Transforms
 
             int size = _types[iinfo].Size;
             if (size == 0)
-                throw MetadataUtils.ExceptGetMetadata();
+                throw AnnotationUtils.ExceptGetAnnotation();
 
             var editor = VBufferEditor.Create(ref dst, size);
 
@@ -197,12 +197,12 @@ namespace Microsoft.ML.Transforms
                 Host.Assert(size == 2 * srcVectorType.Size);
 
                 // REVIEW: Do we need to verify that there is metadata or should we just call GetMetadata?
-                var typeNames = Source.Schema[Infos[iinfo].Source].Metadata.Schema.GetColumnOrNull(MetadataUtils.Kinds.SlotNames)?.Type as VectorType;
-                if (typeNames == null || typeNames.Size != srcVectorType.Size || !(typeNames.ItemType is TextType))
-                    throw MetadataUtils.ExceptGetMetadata();
+                var typeNames = Source.Schema[Infos[iinfo].Source].Annotations.Schema.GetColumnOrNull(AnnotationUtils.Kinds.SlotNames)?.Type as VectorType;
+                if (typeNames == null || typeNames.Size != srcVectorType.Size || !(typeNames.ItemType is TextDataViewType))
+                    throw AnnotationUtils.ExceptGetAnnotation();
 
                 var names = default(VBuffer<ReadOnlyMemory<char>>);
-                Source.Schema[Infos[iinfo].Source].Metadata.GetValue(MetadataUtils.Kinds.SlotNames, ref names);
+                Source.Schema[Infos[iinfo].Source].Annotations.GetValue(AnnotationUtils.Kinds.SlotNames, ref names);
 
                 // We both assert and check. If this fails, there is a bug somewhere (possibly in this code
                 // but more likely in the implementation of Base. On the other hand, we don't want to proceed
@@ -235,19 +235,19 @@ namespace Microsoft.ML.Transforms
             dst = editor.Commit();
         }
 
-        protected override Delegate GetGetterCore(IChannel ch, Row input, int iinfo, out Action disposer)
+        protected override Delegate GetGetterCore(IChannel ch, DataViewRow input, int iinfo, out Action disposer)
         {
             Host.AssertValueOrNull(ch);
             Host.AssertValue(input);
             Host.Assert(0 <= iinfo && iinfo < Infos.Length);
             disposer = null;
 
-            ValueGetter<VBuffer<Float>> del;
+            ValueGetter<VBuffer<float>> del;
             if (Infos[iinfo].TypeSrc is VectorType)
             {
-                var getSrc = GetSrcGetter<VBuffer<Float>>(input, iinfo);
+                var getSrc = GetSrcGetter<VBuffer<float>>(input, iinfo);
                 del =
-                    (ref VBuffer<Float> dst) =>
+                    (ref VBuffer<float> dst) =>
                     {
                         getSrc(ref dst);
                         FillValues(Host, ref dst);
@@ -255,11 +255,11 @@ namespace Microsoft.ML.Transforms
             }
             else
             {
-                var getSrc = GetSrcGetter<Float>(input, iinfo);
+                var getSrc = GetSrcGetter<float>(input, iinfo);
                 del =
-                    (ref VBuffer<Float> dst) =>
+                    (ref VBuffer<float> dst) =>
                     {
-                        var src = default(Float);
+                        var src = default(float);
                         getSrc(ref src);
                         FillValues(src, ref dst);
                         Host.Assert(dst.Length == 2);
@@ -268,7 +268,7 @@ namespace Microsoft.ML.Transforms
             return del;
         }
 
-        private static void FillValues(Float input, ref VBuffer<Float> result)
+        private static void FillValues(float input, ref VBuffer<float> result)
         {
             if (input == 0)
             {
@@ -277,7 +277,7 @@ namespace Microsoft.ML.Transforms
             }
 
             var editor = VBufferEditor.Create(ref result, 2, 1);
-            if (Float.IsNaN(input))
+            if (float.IsNaN(input))
             {
                 editor.Values[0] = 1;
                 editor.Indices[0] = 1;
@@ -292,7 +292,7 @@ namespace Microsoft.ML.Transforms
         }
 
         // This converts in place.
-        private static void FillValues(IExceptionContext ectx, ref VBuffer<Float> buffer)
+        private static void FillValues(IExceptionContext ectx, ref VBuffer<float> buffer)
         {
             int size = buffer.Length;
             ectx.Check(0 <= size & size < int.MaxValue / 2);
@@ -310,7 +310,7 @@ namespace Microsoft.ML.Transforms
                     var val = values[ivSrc];
                     if (val == 0)
                         continue;
-                    if (Float.IsNaN(val))
+                    if (float.IsNaN(val))
                     {
                         editor.Values[iivDst] = 1;
                         editor.Indices[iivDst] = 2 * ivSrc + 1;
@@ -338,7 +338,7 @@ namespace Microsoft.ML.Transforms
                     int iv = indices[iivSrc];
                     ectx.Assert(ivPrev < iv & iv < size);
                     ivPrev = iv;
-                    if (Float.IsNaN(val))
+                    if (float.IsNaN(val))
                     {
                         editor.Values[iivDst] = 1;
                         editor.Indices[iivDst] = 2 * iv + 1;

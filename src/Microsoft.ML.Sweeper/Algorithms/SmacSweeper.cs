@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
@@ -12,10 +13,8 @@ using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Sweeper;
 using Microsoft.ML.Sweeper.Algorithms;
 using Microsoft.ML.Trainers.FastTree;
-using Microsoft.ML.Trainers.FastTree.Internal;
-using Float = System.Single;
 
-[assembly: LoadableClass(typeof(SmacSweeper), typeof(SmacSweeper.Arguments), typeof(SignatureSweeper),
+[assembly: LoadableClass(typeof(SmacSweeper), typeof(SmacSweeper.Options), typeof(SignatureSweeper),
     "SMAC Sweeper", "SMACSweeper", "SMAC")]
 
 namespace Microsoft.ML.Sweeper
@@ -24,7 +23,7 @@ namespace Microsoft.ML.Sweeper
     //encapsulating common functionality. This seems like a good plan to persue.
     public sealed class SmacSweeper : ISweeper
     {
-        public sealed class Arguments
+        public sealed class Options
         {
             [Argument(ArgumentType.Multiple | ArgumentType.Required, HelpText = "Swept parameters", ShortName = "p", SignatureType = typeof(SignatureSweeperParameter))]
             public IComponentFactory<IValueGenerator>[] SweptParameters;
@@ -51,38 +50,38 @@ namespace Microsoft.ML.Sweeper
             public int NumRandomEISearchConfigurations = 10000;
 
             [Argument(ArgumentType.LastOccurenceWins, HelpText = "Fraction of eligible dimensions to split on (i.e., split ratio)", ShortName = "sr")]
-            public Float SplitRatio = (Float)0.8;
+            public float SplitRatio = (float)0.8;
 
             [Argument(ArgumentType.LastOccurenceWins, HelpText = "Epsilon threshold for ending local searches", ShortName = "eps")]
-            public Float Epsilon = (Float)0.00001;
+            public float Epsilon = (float)0.00001;
 
             [Argument(ArgumentType.LastOccurenceWins, HelpText = "Number of neighbors to sample for locally searching each numerical parameter", ShortName = "nnnp")]
             public int NumNeighborsForNumericalParams = 4;
         }
 
         private readonly ISweeper _randomSweeper;
-        private readonly Arguments _args;
+        private readonly Options _args;
         private readonly IHost _host;
 
         private readonly IValueGenerator[] _sweepParameters;
 
-        public SmacSweeper(IHostEnvironment env, Arguments args)
+        public SmacSweeper(IHostEnvironment env, Options options)
         {
             Contracts.CheckValue(env, nameof(env));
             _host = env.Register("Sweeper");
 
-            _host.CheckUserArg(args.NumOfTrees > 0, nameof(args.NumOfTrees), "parameter must be greater than 0");
-            _host.CheckUserArg(args.NMinForSplit > 1, nameof(args.NMinForSplit), "parameter must be greater than 1");
-            _host.CheckUserArg(args.SplitRatio > 0 && args.SplitRatio <= 1, nameof(args.SplitRatio), "parameter must be in range (0,1].");
-            _host.CheckUserArg(args.NumberInitialPopulation > 1, nameof(args.NumberInitialPopulation), "parameter must be greater than 1");
-            _host.CheckUserArg(args.LocalSearchParentCount > 0, nameof(args.LocalSearchParentCount), "parameter must be greater than 0");
-            _host.CheckUserArg(args.NumRandomEISearchConfigurations > 0, nameof(args.NumRandomEISearchConfigurations), "parameter must be greater than 0");
-            _host.CheckUserArg(args.NumNeighborsForNumericalParams > 0, nameof(args.NumNeighborsForNumericalParams), "parameter must be greater than 0");
+            _host.CheckUserArg(options.NumOfTrees > 0, nameof(options.NumOfTrees), "parameter must be greater than 0");
+            _host.CheckUserArg(options.NMinForSplit > 1, nameof(options.NMinForSplit), "parameter must be greater than 1");
+            _host.CheckUserArg(options.SplitRatio > 0 && options.SplitRatio <= 1, nameof(options.SplitRatio), "parameter must be in range (0,1].");
+            _host.CheckUserArg(options.NumberInitialPopulation > 1, nameof(options.NumberInitialPopulation), "parameter must be greater than 1");
+            _host.CheckUserArg(options.LocalSearchParentCount > 0, nameof(options.LocalSearchParentCount), "parameter must be greater than 0");
+            _host.CheckUserArg(options.NumRandomEISearchConfigurations > 0, nameof(options.NumRandomEISearchConfigurations), "parameter must be greater than 0");
+            _host.CheckUserArg(options.NumNeighborsForNumericalParams > 0, nameof(options.NumNeighborsForNumericalParams), "parameter must be greater than 0");
 
-            _args = args;
-            _host.CheckUserArg(Utils.Size(args.SweptParameters) > 0, nameof(args.SweptParameters), "SMAC sweeper needs at least one parameter to sweep over");
-            _sweepParameters = args.SweptParameters.Select(p => p.CreateComponent(_host)).ToArray();
-            _randomSweeper = new UniformRandomSweeper(env, new SweeperBase.ArgumentsBase(), _sweepParameters);
+            _args = options;
+            _host.CheckUserArg(Utils.Size(options.SweptParameters) > 0, nameof(options.SweptParameters), "SMAC sweeper needs at least one parameter to sweep over");
+            _sweepParameters = options.SweptParameters.Select(p => p.CreateComponent(_host)).ToArray();
+            _randomSweeper = new UniformRandomSweeper(env, new SweeperBase.OptionsBase(), _sweepParameters);
         }
 
         public ParameterSet[] ProposeSweeps(int maxSweeps, IEnumerable<IRunResult> previousRuns = null)
@@ -119,17 +118,16 @@ namespace Microsoft.ML.Sweeper
             foreach (RunResult r in previousRuns)
             {
                 features[i] = SweeperProbabilityUtils.ParameterSetAsFloatArray(_host, _sweepParameters, r.ParameterSet, true);
-                targets[i] = (Float)r.MetricValue;
+                targets[i] = (float)r.MetricValue;
                 i++;
             }
 
             ArrayDataViewBuilder dvBuilder = new ArrayDataViewBuilder(_host);
-            dvBuilder.AddColumn(DefaultColumnNames.Label, NumberType.Float, targets);
-            dvBuilder.AddColumn(DefaultColumnNames.Features, NumberType.Float, features);
+            dvBuilder.AddColumn(DefaultColumnNames.Label, NumberDataViewType.Single, targets);
+            dvBuilder.AddColumn(DefaultColumnNames.Features, NumberDataViewType.Single, features);
 
             IDataView view = dvBuilder.GetDataView();
             _host.Assert(view.GetRowCount() == targets.Length, "This data view will have as many rows as there have been evaluations");
-            RoleMappedData data = new RoleMappedData(view, DefaultColumnNames.Label, DefaultColumnNames.Features);
 
             using (IChannel ch = _host.Start("Single training"))
             {
@@ -141,11 +139,13 @@ namespace Microsoft.ML.Sweeper
                         FeatureFraction = _args.SplitRatio,
                         NumTrees = _args.NumOfTrees,
                         MinDocumentsInLeafs = _args.NMinForSplit,
+                        LabelColumnName = DefaultColumnNames.Label,
+                        FeatureColumnName = DefaultColumnNames.Features,
                     });
-                var predictor = trainer.Train(data);
+                var predictor = trainer.Fit(view);
 
                 // Return random forest predictor.
-                return predictor;
+                return predictor.Model;
             }
         }
 
@@ -284,7 +284,7 @@ namespace Microsoft.ML.Sweeper
                 if (parameterDiscrete != null)
                 {
                     // Create one neighbor for every discrete parameter.
-                    Float[] neighbor = SweeperProbabilityUtils.ParameterSetAsFloatArray(_host, _sweepParameters, parent, false);
+                    float[] neighbor = SweeperProbabilityUtils.ParameterSetAsFloatArray(_host, _sweepParameters, parent, false);
 
                     int hotIndex = -1;
                     for (int j = 0; j < parameterDiscrete.Count; j++)
@@ -312,11 +312,11 @@ namespace Microsoft.ML.Sweeper
                     // Create k neighbors (typically 4) for every numerical parameter.
                     for (int j = 0; j < _args.NumNeighborsForNumericalParams; j++)
                     {
-                        Float[] neigh = SweeperProbabilityUtils.ParameterSetAsFloatArray(_host, _sweepParameters, parent, false);
+                        float[] neigh = SweeperProbabilityUtils.ParameterSetAsFloatArray(_host, _sweepParameters, parent, false);
                         double newVal = spu.NormalRVs(1, neigh[i], 0.2)[0];
                         while (newVal <= 0.0 || newVal >= 1.0)
                             newVal = spu.NormalRVs(1, neigh[i], 0.2)[0];
-                        neigh[i] = (Float)newVal;
+                        neigh[i] = (float)newVal;
                         ParameterSet neighbor = SweeperProbabilityUtils.FloatArrayAsParameterSet(_host, _sweepParameters, neigh, false);
                         neighbors.Add(neighbor);
                     }
@@ -338,11 +338,11 @@ namespace Microsoft.ML.Sweeper
             foreach (ParameterSet config in configs)
             {
                 List<double> leafValues = new List<double>();
-                foreach (RegressionTree t in e.Trees)
+                foreach (InternalRegressionTree t in e.Trees)
                 {
-                    Float[] transformedParams = SweeperProbabilityUtils.ParameterSetAsFloatArray(_host, _sweepParameters, config, true);
-                    VBuffer<Float> features = new VBuffer<Float>(transformedParams.Length, transformedParams);
-                    leafValues.Add((Float)t.LeafValues[t.GetLeaf(in features)]);
+                    float[] transformedParams = SweeperProbabilityUtils.ParameterSetAsFloatArray(_host, _sweepParameters, config, true);
+                    VBuffer<float> features = new VBuffer<float>(transformedParams.Length, transformedParams);
+                    leafValues.Add((float)t.LeafValues[t.GetLeaf(in features)]);
                 }
                 datasetLeafValues.Add(leafValues.ToArray());
             }
@@ -434,7 +434,7 @@ namespace Microsoft.ML.Sweeper
             return new ParameterSet(parameters);
         }
 
-        private Float ParameterAsFloat(ParameterSet parameterSet, int index)
+        private float ParameterAsFloat(ParameterSet parameterSet, int index)
         {
             _host.Assert(parameterSet.Count == _sweepParameters.Length);
             _host.Assert(index >= 0 && index <= _sweepParameters.Length);

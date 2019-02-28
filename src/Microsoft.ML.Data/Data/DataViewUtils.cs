@@ -9,19 +9,22 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Data.Conversion;
 using Microsoft.ML.Internal.Utilities;
 
 namespace Microsoft.ML.Data
 {
-    public static class DataViewUtils
+    [BestFriend]
+    internal static class DataViewUtils
     {
         /// <summary>
         /// Generate a unique temporary column name for the given schema.
         /// Use tag to independently create multiple temporary, unique column
         /// names for a single transform.
         /// </summary>
-        public static string GetTempColumnName(this Schema schema, string tag = null)
+        public static string GetTempColumnName(this DataViewSchema schema, string tag = null)
         {
             Contracts.CheckValue(schema, nameof(schema));
 
@@ -45,7 +48,7 @@ namespace Microsoft.ML.Data
         /// Use tag to independently create multiple temporary, unique column
         /// names for a single transform.
         /// </summary>
-        public static string[] GetTempColumnNames(this Schema schema, int n, string tag = null)
+        public static string[] GetTempColumnNames(this DataViewSchema schema, int n, string tag = null)
         {
             Contracts.CheckValue(schema, nameof(schema));
             Contracts.Check(n > 0, "n");
@@ -81,7 +84,7 @@ namespace Microsoft.ML.Data
             if (countNullable != null)
                 return countNullable.Value;
             long count = 0;
-            using (var cursor = view.GetRowCursor(col => false))
+            using (var cursor = view.GetRowCursor())
             {
                 while (cursor.MoveNext())
                     count++;
@@ -113,22 +116,21 @@ namespace Microsoft.ML.Data
         /// Try to create a cursor set from upstream and consolidate it here. The host determines
         /// the target cardinality of the cursor set.
         /// </summary>
-        public static bool TryCreateConsolidatingCursor(out RowCursor curs,
-            IDataView view, Func<int, bool> predicate, IHost host, Random rand)
+        public static bool TryCreateConsolidatingCursor(out DataViewRowCursor curs,
+            IDataView view, IEnumerable<DataViewSchema.Column> columnsNeeded, IHost host, Random rand)
         {
             Contracts.CheckValue(host, nameof(host));
             host.CheckValue(view, nameof(view));
-            host.CheckValue(predicate, nameof(predicate));
 
             int cthd = GetThreadCount(host);
             host.Assert(cthd > 0);
-            if (cthd == 1 || !AllCachable(view.Schema, predicate))
+            if (cthd == 1 || !AllCacheable(columnsNeeded))
             {
                 curs = null;
                 return false;
             }
 
-            var inputs = view.GetRowCursorSet(predicate, cthd, rand);
+            var inputs = view.GetRowCursorSet(columnsNeeded, cthd, rand);
             host.Check(Utils.Size(inputs) > 0);
 
             if (inputs.Length == 1)
@@ -150,17 +152,17 @@ namespace Microsoft.ML.Data
         /// cardinality. If not all the active columns are cachable, this will only
         /// produce the given input cursor.
         /// </summary>
-        public static RowCursor[] CreateSplitCursors(IChannelProvider provider, RowCursor input, int num)
+        public static DataViewRowCursor[] CreateSplitCursors(IChannelProvider provider, DataViewRowCursor input, int num)
         {
             Contracts.CheckValue(provider, nameof(provider));
             provider.CheckValue(input, nameof(input));
 
             if (num <= 1)
-                return new RowCursor[1] { input };
+                return new DataViewRowCursor[1] { input };
 
             // If any active columns are not cachable, we can't split.
-            if (!AllCachable(input.Schema, input.IsColumnActive))
-                return new RowCursor[1] { input };
+            if (!AllCacheable(input.Schema, input.IsColumnActive))
+                return new DataViewRowCursor[1] { input };
 
             // REVIEW: Should we limit the cardinality to some reasonable size?
 
@@ -177,7 +179,7 @@ namespace Microsoft.ML.Data
         /// Return whether all the active columns, as determined by the predicate, are
         /// cachable - either primitive types or vector types.
         /// </summary>
-        public static bool AllCachable(Schema schema, Func<int, bool> predicate)
+        public static bool AllCacheable(DataViewSchema schema, Func<int, bool> predicate)
         {
             Contracts.CheckValue(schema, nameof(schema));
             Contracts.CheckValue(predicate, nameof(predicate));
@@ -187,7 +189,7 @@ namespace Microsoft.ML.Data
                 if (!predicate(col))
                     continue;
                 var type = schema[col].Type;
-                if (!IsCachable(type))
+                if (!IsCacheable(type))
                     return false;
             }
 
@@ -195,19 +197,35 @@ namespace Microsoft.ML.Data
         }
 
         /// <summary>
+        /// Return whether all the active columns, as determined by the predicate, are
+        /// cachable - either primitive types or vector types.
+        /// </summary>
+        public static bool AllCacheable(IEnumerable<DataViewSchema.Column> columnsNeeded)
+        {
+            Contracts.CheckValue(columnsNeeded, nameof(columnsNeeded));
+
+            if (columnsNeeded == null)
+                return false;
+
+            foreach (var col in columnsNeeded)
+                if (!IsCacheable(col.Type))
+                    return false;
+
+            return true;
+        }
+
+        /// <summary>
         /// Determine whether the given type is cachable - either a primitive type or a vector type.
         /// </summary>
-        public static bool IsCachable(this ColumnType type)
-        {
-            return type != null && (type is PrimitiveType || type is VectorType);
-        }
+        public static bool IsCacheable(this DataViewType type)
+            => type != null && (type is PrimitiveDataViewType || type is VectorType);
 
         /// <summary>
         /// Tests whether the cursors are mutually compatible for consolidation,
         /// that is, they all are non-null, have the same schemas, and the same
         /// set of columns are active.
         /// </summary>
-        public static bool SameSchemaAndActivity(RowCursor[] cursors)
+        public static bool SameSchemaAndActivity(DataViewRowCursor[] cursors)
         {
             // There must be something to actually consolidate.
             if (Utils.Size(cursors) == 0)
@@ -241,7 +259,7 @@ namespace Microsoft.ML.Data
         /// Given a parallel cursor set, this consolidates them into a single cursor. The batchSize
         /// is a hint used for efficiency.
         /// </summary>
-        public static RowCursor ConsolidateGeneric(IChannelProvider provider, RowCursor[] inputs, int batchSize)
+        public static DataViewRowCursor ConsolidateGeneric(IChannelProvider provider, DataViewRowCursor[] inputs, int batchSize)
         {
             Contracts.CheckValue(provider, nameof(provider));
             provider.CheckNonEmpty(inputs, nameof(inputs));
@@ -277,7 +295,7 @@ namespace Microsoft.ML.Data
         /// </summary>
         private sealed class Splitter
         {
-            private readonly Schema _schema;
+            private readonly DataViewSchema _schema;
             private readonly object[] _cachePools;
 
             /// <summary>
@@ -293,14 +311,14 @@ namespace Microsoft.ML.Data
 #pragma warning restore MSML_GeneralName
             }
 
-            private Splitter(Schema schema)
+            private Splitter(DataViewSchema schema)
             {
                 Contracts.AssertValue(schema);
                 _schema = schema;
                 _cachePools = new object[_schema.Count + (int)ExtraIndex._Lim];
             }
 
-            public static RowCursor Consolidate(IChannelProvider provider, RowCursor[] inputs, int batchSize, ref object[] ourPools)
+            public static DataViewRowCursor Consolidate(IChannelProvider provider, DataViewRowCursor[] inputs, int batchSize, ref object[] ourPools)
             {
                 Contracts.AssertValue(provider);
                 using (var ch = provider.Start("Consolidate"))
@@ -309,16 +327,16 @@ namespace Microsoft.ML.Data
                 }
             }
 
-            private static RowCursor ConsolidateCore(IChannelProvider provider, RowCursor[] inputs, ref object[] ourPools, IChannel ch)
+            private static DataViewRowCursor ConsolidateCore(IChannelProvider provider, DataViewRowCursor[] inputs, ref object[] ourPools, IChannel ch)
             {
                 ch.CheckNonEmpty(inputs, nameof(inputs));
                 if (inputs.Length == 1)
                     return inputs[0];
                 ch.CheckParam(SameSchemaAndActivity(inputs), nameof(inputs), "Inputs not compatible for consolidation");
 
-                RowCursor cursor = inputs[0];
+                DataViewRowCursor cursor = inputs[0];
                 var schema = cursor.Schema;
-                ch.CheckParam(AllCachable(schema, cursor.IsColumnActive), nameof(inputs), "Inputs had some uncachable input columns");
+                ch.CheckParam(AllCacheable(schema, cursor.IsColumnActive), nameof(inputs), "Inputs had some uncachable input columns");
 
                 int[] activeToCol;
                 int[] colToActive;
@@ -334,28 +352,28 @@ namespace Microsoft.ML.Data
                 for (int i = 0; i < activeToCol.Length; ++i)
                 {
                     int c = activeToCol[i];
-                    ColumnType type = schema[c].Type;
+                    DataViewType type = schema[c].Type;
                     var pool = GetPool(type, ourPools, c);
                     outPipes[i] = OutPipe.Create(type, pool);
                 }
                 int idIdx = activeToCol.Length + (int)ExtraIndex.Id;
-                outPipes[idIdx] = OutPipe.Create(NumberType.UG, GetPool(NumberType.UG, ourPools, idIdx));
+                outPipes[idIdx] = OutPipe.Create(RowIdDataViewType.Instance, GetPool(RowIdDataViewType.Instance, ourPools, idIdx));
 
                 // Create the structures to synchronize between the workers and the consumer.
                 const int toConsumeBound = 4;
                 var toConsume = new BlockingCollection<Batch>(toConsumeBound);
                 var batchColumnPool = new MadeObjectPool<BatchColumn[]>(() => new BatchColumn[outPipes.Length]);
-                Thread[] workers = new Thread[inputs.Length];
+                Task[] workers = new Task[inputs.Length];
                 MinWaiter waiter = new MinWaiter(workers.Length);
                 bool done = false;
 
                 for (int t = 0; t < workers.Length; ++t)
                 {
                     var localCursor = inputs[t];
-                    ch.Assert(localCursor.State == CursorState.NotStarted);
+                    ch.Assert(localCursor.Position < 0);
                     // Note that these all take ownership of their respective cursors,
                     // so they all handle their disposal internal to the thread.
-                    workers[t] = Utils.CreateBackgroundThread(() =>
+                    workers[t] = Utils.RunOnBackgroundThread(() =>
                     {
                             // This will be the last batch sent in the finally. If iteration procedes without
                             // error, it will remain null, and be sent as a sentinel. If iteration results in
@@ -442,7 +460,6 @@ namespace Microsoft.ML.Data
                             }
                         }
                     });
-                    workers[t].Start();
                 }
 
                 Action quitAction = () =>
@@ -457,14 +474,13 @@ namespace Microsoft.ML.Data
                         foreach (var outPipe in myOutPipes)
                             outPipe.Unset();
                     }
-                    foreach (Thread thread in workers)
-                        thread.Join();
+                    Task.WaitAll(workers);
                 };
 
                 return new Cursor(provider, schema, activeToCol, colToActive, outPipes, toConsume, quitAction);
             }
 
-            private static object GetPool(ColumnType type, object[] pools, int poolIdx)
+            private static object GetPool(DataViewType type, object[] pools, int poolIdx)
             {
                 Func<object[], int, object> func = GetPoolCore<int>;
                 var method = func.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(type.RawType);
@@ -479,7 +495,7 @@ namespace Microsoft.ML.Data
                 return pool;
             }
 
-            public static RowCursor[] Split(IChannelProvider provider, Schema schema, RowCursor input, int cthd)
+            public static DataViewRowCursor[] Split(IChannelProvider provider, DataViewSchema schema, DataViewRowCursor input, int cthd)
             {
                 Contracts.AssertValue(provider, "provider");
 
@@ -491,13 +507,13 @@ namespace Microsoft.ML.Data
                 }
             }
 
-            private RowCursor[] SplitCore(IChannelProvider ch, RowCursor input, int cthd)
+            private DataViewRowCursor[] SplitCore(IChannelProvider ch, DataViewRowCursor input, int cthd)
             {
                 Contracts.AssertValue(ch);
                 ch.AssertValue(input);
                 ch.Assert(input.Schema == _schema);
                 ch.Assert(cthd >= 2);
-                ch.Assert(AllCachable(_schema, input.IsColumnActive));
+                ch.Assert(AllCacheable(_schema, input.IsColumnActive));
 
                 // REVIEW: Should the following be configurable?
                 // How would we even expose these sorts of parameters to a user?
@@ -509,7 +525,7 @@ namespace Microsoft.ML.Data
                 int[] colToActive;
                 Utils.BuildSubsetMaps(_schema.Count, input.IsColumnActive, out activeToCol, out colToActive);
 
-                Func<RowCursor, int, InPipe> createFunc = CreateInPipe<int>;
+                Func<DataViewRowCursor, int, InPipe> createFunc = CreateInPipe<int>;
                 var inGenMethod = createFunc.GetMethodInfo().GetGenericMethodDefinition();
                 object[] arguments = new object[] { input, 0 };
                 // Only one set of in-pipes, one per column, as well as for extra side information.
@@ -526,7 +542,7 @@ namespace Microsoft.ML.Data
                     ch.Assert(c == 0 || activeToCol[c - 1] < activeToCol[c]);
                     ch.Assert(input.IsColumnActive(activeToCol[c]));
                     var type = input.Schema[activeToCol[c]].Type;
-                    ch.Assert(type.IsCachable());
+                    ch.Assert(type.IsCacheable());
                     arguments[1] = activeToCol[c];
                     var inPipe = inPipes[c] =
                         (InPipe)inGenMethod.MakeGenericMethod(type.RawType).Invoke(this, arguments);
@@ -537,7 +553,7 @@ namespace Microsoft.ML.Data
                 int idIdx = activeToCol.Length + (int)ExtraIndex.Id;
                 inPipes[idIdx] = CreateIdInPipe(input);
                 for (int i = 0; i < cthd; ++i)
-                    outPipes[i][idIdx] = inPipes[idIdx].CreateOutPipe(NumberType.UG);
+                    outPipes[i][idIdx] = inPipes[idIdx].CreateOutPipe(RowIdDataViewType.Instance);
 
                 var toConsume = new BlockingCollection<Batch>(toConsumeBound);
                 var batchColumnPool = new MadeObjectPool<BatchColumn[]>(() => new BatchColumn[inPipes.Length]);
@@ -547,7 +563,7 @@ namespace Microsoft.ML.Data
                 // Set up and start the thread that consumes the input, and utilizes the InPipe
                 // instances to compose the Batch objects. The thread takes ownership of the
                 // cursor, and so handles its disposal.
-                Thread thread = Utils.CreateBackgroundThread(
+                Task thread = Utils.RunOnBackgroundThread(
                     () =>
                     {
                         Batch lastBatch = null;
@@ -594,7 +610,6 @@ namespace Microsoft.ML.Data
                             toConsume.CompleteAdding();
                         }
                     });
-                thread.Start();
 
                 Action quitAction = () =>
                 {
@@ -615,7 +630,7 @@ namespace Microsoft.ML.Data
                             foreach (var outPipe in myOutPipes)
                                 outPipe.Unset();
                         }
-                        thread.Join();
+                        thread.Wait();
                     }
                 };
 
@@ -628,7 +643,7 @@ namespace Microsoft.ML.Data
             /// <summary>
             /// An in pipe creator intended to be used from the splitter only.
             /// </summary>
-            private InPipe CreateInPipe<T>(Row input, int col)
+            private InPipe CreateInPipe<T>(DataViewRow input, int col)
             {
                 Contracts.AssertValue(input);
                 Contracts.Assert(0 <= col && col < _schema.Count);
@@ -638,7 +653,7 @@ namespace Microsoft.ML.Data
             /// <summary>
             /// An in pipe creator intended to be used from the splitter only.
             /// </summary>
-            private InPipe CreateIdInPipe(Row input)
+            private InPipe CreateIdInPipe(DataViewRow input)
             {
                 Contracts.AssertValue(input);
                 return CreateInPipeCore(_schema.Count + (int)ExtraIndex.Id, input.GetIdGetter());
@@ -687,7 +702,7 @@ namespace Microsoft.ML.Data
                 /// Creates an out pipe corresponding to the in pipe. This is useful for the splitter,
                 /// when we are creating an in pipe.
                 /// </summary>
-                public abstract OutPipe CreateOutPipe(ColumnType type);
+                public abstract OutPipe CreateOutPipe(DataViewType type);
 
                 private sealed class Impl<T> : InPipe
                 {
@@ -722,7 +737,7 @@ namespace Microsoft.ML.Data
                         return retval;
                     }
 
-                    public override OutPipe CreateOutPipe(ColumnType type)
+                    public override OutPipe CreateOutPipe(DataViewType type)
                     {
                         Contracts.AssertValue(type);
                         Contracts.Assert(typeof(T) == type.RawType);
@@ -833,7 +848,7 @@ namespace Microsoft.ML.Data
 
             /// <summary>
             /// This helps a cursor present the results of a <see cref="BatchColumn"/>. Practically its role
-            /// really is to just provide a stable delegate for the <see cref="Row.GetGetter{T}(int)"/>.
+            /// really is to just provide a stable delegate for the <see cref="DataViewRow.GetGetter{T}(int)"/>.
             /// There is one of these created per column, per output cursor, i.e., in splitting
             /// there are <c>n</c> of these created per column, and when consolidating only one of these
             /// is created per column.
@@ -849,7 +864,7 @@ namespace Microsoft.ML.Data
                 {
                 }
 
-                public static OutPipe Create(ColumnType type, object pool)
+                public static OutPipe Create(DataViewType type, object pool)
                 {
                     Contracts.AssertValue(type);
                     Contracts.AssertValue(pool);
@@ -859,7 +874,7 @@ namespace Microsoft.ML.Data
                         pipeType = typeof(ImplVec<>).MakeGenericType(vectorType.ItemType.RawType);
                     else
                     {
-                        Contracts.Assert(type is PrimitiveType);
+                        Contracts.Assert(type is PrimitiveDataViewType);
                         pipeType = typeof(ImplOne<>).MakeGenericType(type.RawType);
                     }
                     var constructor = pipeType.GetConstructor(new Type[] { typeof(object) });
@@ -985,12 +1000,12 @@ namespace Microsoft.ML.Data
             /// </summary>
             private sealed class Cursor : RootCursorBase
             {
-                private readonly Schema _schema;
+                private readonly DataViewSchema _schema;
                 private readonly int[] _activeToCol;
                 private readonly int[] _colToActive;
                 private readonly OutPipe[] _pipes;
                 private readonly Delegate[] _getters;
-                private readonly ValueGetter<RowId> _idGetter;
+                private readonly ValueGetter<DataViewRowId> _idGetter;
                 private readonly BlockingCollection<Batch> _batchInputs;
                 private readonly Action _quitAction;
 
@@ -998,7 +1013,7 @@ namespace Microsoft.ML.Data
                 private long _batch;
                 private bool _disposed;
 
-                public override Schema Schema => _schema;
+                public override DataViewSchema Schema => _schema;
 
                 public override long Batch => _batch;
 
@@ -1013,7 +1028,7 @@ namespace Microsoft.ML.Data
                 /// <param name="pipes">The output pipes, one per channel of information</param>
                 /// <param name="batchInputs"></param>
                 /// <param name="quitAction"></param>
-                public Cursor(IChannelProvider provider, Schema schema, int[] activeToCol, int[] colToActive,
+                public Cursor(IChannelProvider provider, DataViewSchema schema, int[] activeToCol, int[] colToActive,
                     OutPipe[] pipes, BlockingCollection<Batch> batchInputs, Action quitAction)
                     : base(provider)
                 {
@@ -1034,7 +1049,7 @@ namespace Microsoft.ML.Data
                     _getters = new Delegate[pipes.Length];
                     for (int i = 0; i < activeToCol.Length; ++i)
                         _getters[i] = _pipes[i].GetGetter();
-                    _idGetter = (ValueGetter<RowId>)_pipes[activeToCol.Length + (int)ExtraIndex.Id].GetGetter();
+                    _idGetter = (ValueGetter<DataViewRowId>)_pipes[activeToCol.Length + (int)ExtraIndex.Id].GetGetter();
                     _batchInputs = batchInputs;
                     _batch = -1;
                     _quitAction = quitAction;
@@ -1054,11 +1069,11 @@ namespace Microsoft.ML.Data
                     base.Dispose(disposing);
                 }
 
-                public override ValueGetter<RowId> GetIdGetter() => _idGetter;
+                public override ValueGetter<DataViewRowId> GetIdGetter() => _idGetter;
 
                 protected override bool MoveNextCore()
                 {
-                    Ch.Assert(!_disposed && State != CursorState.Done);
+                    Ch.Assert(!_disposed);
                     if (--_remaining > 0)
                     {
                         // We are still consuming the current output pipes.
@@ -1117,10 +1132,10 @@ namespace Microsoft.ML.Data
         /// </summary>
         internal sealed class SynchronousConsolidatingCursor : RootCursorBase
         {
-            private readonly RowCursor[] _cursors;
+            private readonly DataViewRowCursor[] _cursors;
             private readonly Delegate[] _getters;
 
-            private readonly Schema _schema;
+            private readonly DataViewSchema _schema;
             private readonly Heap<CursorStats> _mins;
             private readonly int[] _activeToCol;
             private readonly int[] _colToActive;
@@ -1131,7 +1146,7 @@ namespace Microsoft.ML.Data
             // Index into _cursors array pointing to the current cursor, or -1 if this cursor is not in Good state.
             private int _icursor;
             // If this cursor is in Good state then this should equal _cursors[_icursor], else null.
-            private RowCursor _currentCursor;
+            private DataViewRowCursor _currentCursor;
             private bool _disposed;
 
             private readonly struct CursorStats
@@ -1150,9 +1165,9 @@ namespace Microsoft.ML.Data
             // input batch as our own batch. Should we suppress it?
             public override long Batch { get { return _batch; } }
 
-            public override Schema Schema => _schema;
+            public override DataViewSchema Schema => _schema;
 
-            public SynchronousConsolidatingCursor(IChannelProvider provider, RowCursor[] cursors)
+            public SynchronousConsolidatingCursor(IChannelProvider provider, DataViewRowCursor[] cursors)
                 : base(provider)
             {
                 Ch.CheckNonEmpty(cursors, nameof(cursors));
@@ -1178,8 +1193,8 @@ namespace Microsoft.ML.Data
             {
                 for (int i = 0; i < _cursors.Length; ++i)
                 {
-                    RowCursor cursor = _cursors[i];
-                    Ch.Assert(cursor.State == CursorState.NotStarted);
+                    DataViewRowCursor cursor = _cursors[i];
+                    Ch.Assert(cursor.Position < 0);
                     if (cursor.MoveNext())
                         _mins.Add(new CursorStats(cursor.Batch, i));
                 }
@@ -1202,15 +1217,15 @@ namespace Microsoft.ML.Data
                 base.Dispose(disposing);
             }
 
-            public override ValueGetter<RowId> GetIdGetter()
+            public override ValueGetter<DataViewRowId> GetIdGetter()
             {
-                ValueGetter<RowId>[] idGetters = new ValueGetter<RowId>[_cursors.Length];
+                ValueGetter<DataViewRowId>[] idGetters = new ValueGetter<DataViewRowId>[_cursors.Length];
                 for (int i = 0; i < _cursors.Length; ++i)
                     idGetters[i] = _cursors[i].GetIdGetter();
                 return
-                    (ref RowId val) =>
+                    (ref DataViewRowId val) =>
                     {
-                        Ch.Check(_icursor >= 0, "Cannot call ID getter in current state");
+                        Ch.Check(_icursor >= 0, RowCursorUtils.FetchValueStateError);
                         idGetters[_icursor](ref val);
                     };
             }
@@ -1237,7 +1252,7 @@ namespace Microsoft.ML.Data
                 ValueGetter<T> mine =
                     (ref T value) =>
                     {
-                        Ch.Check(_icursor >= 0, "Cannot get value as the cursor is not in a good state");
+                        Ch.Check(_icursor >= 0, RowCursorUtils.FetchValueStateError);
                         getters[_icursor](ref value);
                     };
                 return mine;
@@ -1245,8 +1260,8 @@ namespace Microsoft.ML.Data
 
             protected override bool MoveNextCore()
             {
-                Ch.Assert(!_disposed && State != CursorState.Done);
-                if (State == CursorState.Good && _currentCursor.MoveNext())
+                Ch.Assert(!_disposed);
+                if (Position >= 0 && _currentCursor.MoveNext())
                 {
                     // If we're still in this batch, no need to do anything, yet.
                     if (_currentCursor.Batch == _batch)
@@ -1264,7 +1279,7 @@ namespace Microsoft.ML.Data
                 // some batch with some cursors with more rows. Because we only know the
                 // batch ID once we've moved into a row, we do not need to, at this time.
                 var stats = _mins.Pop();
-                Ch.Assert(State == CursorState.NotStarted || stats.Batch > _batch);
+                Ch.Assert(Position < 0 || stats.Batch > _batch);
                 _icursor = stats.CursorIdx;
                 _currentCursor = _cursors[stats.CursorIdx];
                 _batch = _currentCursor.Batch;
@@ -1288,7 +1303,7 @@ namespace Microsoft.ML.Data
             }
         }
 
-        public static ValueGetter<ReadOnlyMemory<char>>[] PopulateGetterArray(RowCursor cursor, List<int> colIndices)
+        public static ValueGetter<ReadOnlyMemory<char>>[] PopulateGetterArray(DataViewRowCursor cursor, List<int> colIndices)
         {
             var n = colIndices.Count;
             var getters = new ValueGetter<ReadOnlyMemory<char>>[n];
@@ -1316,7 +1331,7 @@ namespace Microsoft.ML.Data
             return getters;
         }
 
-        public static ValueGetter<ReadOnlyMemory<char>> GetSingleValueGetter<T>(Row cursor, int i, ColumnType colType)
+        public static ValueGetter<ReadOnlyMemory<char>> GetSingleValueGetter<T>(DataViewRow cursor, int i, DataViewType colType)
         {
             var floatGetter = cursor.GetGetter<T>(i);
             T v = default(T);
@@ -1346,7 +1361,7 @@ namespace Microsoft.ML.Data
             return getter;
         }
 
-        public static ValueGetter<ReadOnlyMemory<char>> GetVectorFlatteningGetter<T>(Row cursor, int colIndex, ColumnType colType)
+        public static ValueGetter<ReadOnlyMemory<char>> GetVectorFlatteningGetter<T>(DataViewRow cursor, int colIndex, DataViewType colType)
         {
             var vecGetter = cursor.GetGetter<VBuffer<T>>(colIndex);
             var vbuf = default(VBuffer<T>);

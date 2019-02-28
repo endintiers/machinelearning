@@ -3,7 +3,10 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Data.Conversion;
 using Microsoft.ML.Model;
 
@@ -13,10 +16,10 @@ namespace Microsoft.ML.Data
     /// This applies the user provided RefPredicate to a column and drops rows that map to false. It automatically
     /// injects a standard conversion from the actual type of the source column to typeSrc (if needed).
     /// </summary>
-    public static class LambdaFilter
+    internal static class LambdaFilter
     {
         public static IDataView Create<TSrc>(IHostEnvironment env, string name, IDataView input,
-            string src, ColumnType typeSrc, InPredicate<TSrc> predicate)
+            string src, DataViewType typeSrc, InPredicate<TSrc> predicate)
         {
             Contracts.CheckValue(env, nameof(env));
             env.CheckNonEmpty(name, nameof(name));
@@ -93,7 +96,7 @@ namespace Microsoft.ML.Data
                 _conv = conv;
             }
 
-            public override void Save(ModelSaveContext ctx)
+            private protected override void SaveModel(ModelSaveContext ctx)
             {
                 Host.Assert(false, "Shouldn't serialize this!");
                 throw Host.ExceptNotSupp("Shouldn't serialize this");
@@ -106,29 +109,33 @@ namespace Microsoft.ML.Data
                 return null;
             }
 
-            protected override RowCursor GetRowCursorCore(Func<int, bool> predicate, Random rand = null)
+            protected override DataViewRowCursor GetRowCursorCore(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null)
             {
-                Host.AssertValue(predicate, "predicate");
                 Host.AssertValueOrNull(rand);
+                var predicate = RowCursorUtils.FromColumnsToPredicate(columnsNeeded, OutputSchema);
 
                 bool[] active;
                 Func<int, bool> inputPred = GetActive(predicate, out active);
-                var input = Source.GetRowCursor(inputPred, rand);
+
+                var inputCols = Source.Schema.Where(x => inputPred(x.Index));
+                var input = Source.GetRowCursor(inputCols, rand);
                 return new Cursor(this, input, active);
             }
 
-            public override RowCursor[] GetRowCursorSet(Func<int, bool> predicate, int n, Random rand = null)
+            public override DataViewRowCursor[] GetRowCursorSet(IEnumerable<DataViewSchema.Column> columnsNeeded, int n, Random rand = null)
             {
-                Host.CheckValue(predicate, nameof(predicate));
+
                 Host.CheckValueOrNull(rand);
+                var predicate = RowCursorUtils.FromColumnsToPredicate(columnsNeeded, OutputSchema);
 
                 bool[] active;
                 Func<int, bool> inputPred = GetActive(predicate, out active);
-                var inputs = Source.GetRowCursorSet(inputPred, n, rand);
+                var inputCols = Source.Schema.Where(x => inputPred(x.Index));
+                var inputs = Source.GetRowCursorSet(inputCols, n, rand);
                 Host.AssertNonEmpty(inputs);
 
                 // No need to split if this is given 1 input cursor.
-                var cursors = new RowCursor[inputs.Length];
+                var cursors = new DataViewRowCursor[inputs.Length];
                 for (int i = 0; i < inputs.Length; i++)
                     cursors[i] = new Cursor(this, inputs[i], active);
                 return cursors;
@@ -152,7 +159,7 @@ namespace Microsoft.ML.Data
                 private readonly InPredicate<T1> _pred;
                 private T1 _src;
 
-                public Cursor(Impl<T1, T2> parent, RowCursor input, bool[] active)
+                public Cursor(Impl<T1, T2> parent, DataViewRowCursor input, bool[] active)
                     : base(parent.Host, input, parent.OutputSchema, active)
                 {
                     _getSrc = Input.GetGetter<T1>(parent._colSrc);

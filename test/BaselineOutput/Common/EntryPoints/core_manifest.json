@@ -97,7 +97,7 @@
       "ShortName": null,
       "Inputs": [
         {
-          "Name": "Model",
+          "Name": "Models",
           "Type": {
             "Kind": "Array",
             "ItemType": "PredictorModel"
@@ -110,7 +110,7 @@
       ],
       "Outputs": [
         {
-          "Name": "OutputModel",
+          "Name": "OutputModels",
           "Type": {
             "Kind": "Array",
             "ItemType": "PredictorModel"
@@ -191,8 +191,8 @@
                         "Desc": "Type of the items in the column",
                         "Required": false,
                         "SortOrder": 150.0,
-                        "IsNullable": true,
-                        "Default": null
+                        "IsNullable": false,
+                        "Default": "R4"
                       },
                       {
                         "Name": "Source",
@@ -280,36 +280,18 @@
                         "Default": null
                       },
                       {
-                        "Name": "KeyRange",
+                        "Name": "KeyCount",
                         "Type": {
                           "Kind": "Struct",
                           "Fields": [
                             {
-                              "Name": "Min",
+                              "Name": "Count",
                               "Type": "UInt",
-                              "Desc": "First index in the range",
-                              "Required": false,
-                              "SortOrder": 150.0,
-                              "IsNullable": false,
-                              "Default": 0
-                            },
-                            {
-                              "Name": "Max",
-                              "Type": "UInt",
-                              "Desc": "Last index in the range",
+                              "Desc": "Count of valid key values",
                               "Required": false,
                               "SortOrder": 150.0,
                               "IsNullable": true,
                               "Default": null
-                            },
-                            {
-                              "Name": "Contiguous",
-                              "Type": "Bool",
-                              "Desc": "Whether the key is contiguous",
-                              "Required": false,
-                              "SortOrder": 150.0,
-                              "IsNullable": false,
-                              "Default": true
                             }
                           ]
                         },
@@ -335,42 +317,6 @@
                 "Default": null
               },
               {
-                "Name": "UseThreads",
-                "Type": "Bool",
-                "Desc": "Use separate parsing threads?",
-                "Aliases": [
-                  "threads"
-                ],
-                "Required": false,
-                "SortOrder": 150.0,
-                "IsNullable": false,
-                "Default": true
-              },
-              {
-                "Name": "HeaderFile",
-                "Type": "String",
-                "Desc": "File containing a header with feature names. If specified, header defined in the data file (header+) is ignored.",
-                "Aliases": [
-                  "hf"
-                ],
-                "Required": false,
-                "SortOrder": 150.0,
-                "IsNullable": false,
-                "Default": null
-              },
-              {
-                "Name": "MaxRows",
-                "Type": "Int",
-                "Desc": "Maximum number of rows to produce",
-                "Aliases": [
-                  "rows"
-                ],
-                "Required": false,
-                "SortOrder": 150.0,
-                "IsNullable": true,
-                "Default": null
-              },
-              {
                 "Name": "AllowQuoting",
                 "Type": "Bool",
                 "Desc": "Whether the input may include quoted values, which can contain separator characters, colons, and distinguish empty values from missing values. When true, consecutive separators denote a missing value and an empty value is denoted by \"\". When false, consecutive separators denote an empty value.",
@@ -380,7 +326,7 @@
                 "Required": false,
                 "SortOrder": 150.0,
                 "IsNullable": false,
-                "Default": true
+                "Default": false
               },
               {
                 "Name": "AllowSparse",
@@ -392,7 +338,7 @@
                 "Required": false,
                 "SortOrder": 150.0,
                 "IsNullable": false,
-                "Default": true
+                "Default": false
               },
               {
                 "Name": "InputSize",
@@ -446,6 +392,42 @@
                 "SortOrder": 150.0,
                 "IsNullable": false,
                 "Default": false
+              },
+              {
+                "Name": "UseThreads",
+                "Type": "Bool",
+                "Desc": "Use separate parsing threads?",
+                "Aliases": [
+                  "threads"
+                ],
+                "Required": false,
+                "SortOrder": 150.0,
+                "IsNullable": false,
+                "Default": true
+              },
+              {
+                "Name": "HeaderFile",
+                "Type": "String",
+                "Desc": "File containing a header with feature names. If specified, header defined in the data file (header+) is ignored.",
+                "Aliases": [
+                  "hf"
+                ],
+                "Required": false,
+                "SortOrder": 150.0,
+                "IsNullable": false,
+                "Default": null
+              },
+              {
+                "Name": "MaxRows",
+                "Type": "Int",
+                "Desc": "Maximum number of rows to produce",
+                "Aliases": [
+                  "rows"
+                ],
+                "Required": false,
+                "SortOrder": 150.0,
+                "IsNullable": true,
+                "Default": null
               }
             ]
           },
@@ -2115,7 +2097,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -2136,7 +2118,7 @@
           "Default": true
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -2148,7 +2130,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -2157,7 +2139,7 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -2186,7 +2168,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -2355,7 +2336,7 @@
           "Default": true
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -2367,7 +2348,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -2379,7 +2360,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -2388,7 +2369,7 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -2417,7 +2398,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -2695,7 +2675,7 @@
       ]
     },
     {
-      "Name": "Models.RankerEvaluator",
+      "Name": "Models.RankingEvaluator",
       "Desc": "Evaluates a ranking scored dataset.",
       "FriendlyName": null,
       "ShortName": null,
@@ -4186,7 +4166,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -4198,7 +4178,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -4236,7 +4216,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -4324,11 +4303,12 @@
           }
         },
         {
-          "Name": "NumIterations",
+          "Name": "NumberOfIterations",
           "Type": "Int",
           "Desc": "Number of iterations",
           "Aliases": [
-            "iter"
+            "iter",
+            "numIterations"
           ],
           "Required": false,
           "SortOrder": 50.0,
@@ -4343,11 +4323,12 @@
           }
         },
         {
-          "Name": "InitWtsDiameter",
+          "Name": "InitialWeightsDiameter",
           "Type": "Float",
           "Desc": "Init weights diameter",
           "Aliases": [
-            "initwts"
+            "initwts",
+            "initWtsDiameter"
           ],
           "Required": false,
           "SortOrder": 140.0,
@@ -4485,18 +4466,6 @@
               true
             ]
           }
-        },
-        {
-          "Name": "StreamingCacheSize",
-          "Type": "Int",
-          "Desc": "Size of cache when trained in Scope",
-          "Aliases": [
-            "cache"
-          ],
-          "Required": false,
-          "SortOrder": 150.0,
-          "IsNullable": false,
-          "Default": 1000000
         }
       ],
       "Outputs": [
@@ -4555,7 +4524,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -4579,7 +4548,7 @@
           "Default": null
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -4651,7 +4620,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -4757,7 +4725,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -4781,7 +4749,7 @@
           "Default": null
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -4853,7 +4821,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -4959,7 +4926,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -4983,7 +4950,7 @@
           "Default": null
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -5055,7 +5022,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -5178,7 +5144,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -5210,7 +5176,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -5222,7 +5188,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -5231,10 +5197,10 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
-          "Name": "GroupIdColumn",
+          "Name": "RowGroupColumnName",
           "Type": "String",
           "Desc": "Column to use for example groupId",
           "Aliases": [
@@ -5243,7 +5209,7 @@
           "Required": false,
           "SortOrder": 5.0,
           "IsNullable": false,
-          "Default": "GroupId"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -5272,7 +5238,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -5829,7 +5794,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -5861,7 +5826,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -5873,7 +5838,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -5882,10 +5847,10 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
-          "Name": "GroupIdColumn",
+          "Name": "RowGroupColumnName",
           "Type": "String",
           "Desc": "Column to use for example groupId",
           "Aliases": [
@@ -5894,7 +5859,7 @@
           "Required": false,
           "SortOrder": 5.0,
           "IsNullable": false,
-          "Default": "GroupId"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -5923,7 +5888,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -6454,7 +6418,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -6486,7 +6450,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -6516,7 +6480,7 @@
           }
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -6525,10 +6489,10 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
-          "Name": "GroupIdColumn",
+          "Name": "RowGroupColumnName",
           "Type": "String",
           "Desc": "Column to use for example groupId",
           "Aliases": [
@@ -6537,7 +6501,7 @@
           "Required": false,
           "SortOrder": 5.0,
           "IsNullable": false,
-          "Default": "GroupId"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -6566,7 +6530,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -7366,7 +7329,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -7398,7 +7361,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -7428,7 +7391,7 @@
           }
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -7437,10 +7400,10 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
-          "Name": "GroupIdColumn",
+          "Name": "RowGroupColumnName",
           "Type": "String",
           "Desc": "Column to use for example groupId",
           "Aliases": [
@@ -7449,7 +7412,7 @@
           "Required": false,
           "SortOrder": 5.0,
           "IsNullable": false,
-          "Default": "GroupId"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -7478,7 +7441,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -8359,7 +8321,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -8391,7 +8353,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -8421,7 +8383,7 @@
           }
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -8430,10 +8392,10 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
-          "Name": "GroupIdColumn",
+          "Name": "RowGroupColumnName",
           "Type": "String",
           "Desc": "Column to use for example groupId",
           "Aliases": [
@@ -8442,7 +8404,7 @@
           "Required": false,
           "SortOrder": 5.0,
           "IsNullable": false,
-          "Default": "GroupId"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -8471,7 +8433,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -9259,7 +9220,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -9291,7 +9252,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -9321,7 +9282,7 @@
           }
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -9330,10 +9291,10 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
-          "Name": "GroupIdColumn",
+          "Name": "RowGroupColumnName",
           "Type": "String",
           "Desc": "Column to use for example groupId",
           "Aliases": [
@@ -9342,7 +9303,7 @@
           "Required": false,
           "SortOrder": 5.0,
           "IsNullable": false,
-          "Default": "GroupId"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -9371,7 +9332,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -10147,10 +10107,11 @@
           "IsNullable": false
         },
         {
-          "Name": "Iters",
+          "Name": "NumberOfIterations",
           "Type": "Int",
           "Desc": "Number of training iterations",
           "Aliases": [
+            "iters",
             "iter"
           ],
           "Required": false,
@@ -10164,7 +10125,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -10176,7 +10137,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LatentDim",
+          "Name": "LatentDimension",
           "Type": "Int",
           "Desc": "Latent space dimension",
           "Aliases": [
@@ -10193,7 +10154,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -10221,6 +10182,18 @@
             "Max": 1.0,
             "IsLogScale": true
           }
+        },
+        {
+          "Name": "ExampleWeightColumnName",
+          "Type": "String",
+          "Desc": "Column to use for example weight",
+          "Aliases": [
+            "weight"
+          ],
+          "Required": false,
+          "SortOrder": 4.0,
+          "IsNullable": false,
+          "Default": null
         },
         {
           "Name": "LambdaLatent",
@@ -10261,7 +10234,7 @@
           "Default": "Auto"
         },
         {
-          "Name": "Norm",
+          "Name": "Normalize",
           "Type": "Bool",
           "Desc": "Whether to normalize the input vectors so that the concatenation of all fields' feature vectors is unit-length",
           "Aliases": [
@@ -10279,7 +10252,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -10291,6 +10263,21 @@
           "SortOrder": 6.0,
           "IsNullable": false,
           "Default": "Auto"
+        },
+        {
+          "Name": "ExtraFeatureColumns",
+          "Type": {
+            "Kind": "Array",
+            "ItemType": "String"
+          },
+          "Desc": "Extra columns to use for feature vectors. The i-th specified string denotes the column containing features form the (i+1)-th field. Note that the first field is specified by \"feat\" instead of \"exfeat\".",
+          "Aliases": [
+            "exfeat"
+          ],
+          "Required": false,
+          "SortOrder": 7.0,
+          "IsNullable": false,
+          "Default": null
         },
         {
           "Name": "Shuffle",
@@ -10342,6 +10329,7 @@
         }
       ],
       "InputKind": [
+        "ITrainerInputWithWeight",
         "ITrainerInputWithLabel",
         "ITrainerInput"
       ],
@@ -10388,7 +10376,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -10420,7 +10408,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -10450,7 +10438,7 @@
           }
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -10459,7 +10447,7 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -10488,7 +10476,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -10689,7 +10676,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -10721,7 +10708,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -10751,7 +10738,7 @@
           }
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -10760,7 +10747,7 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -10789,7 +10776,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -10970,7 +10956,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -10982,7 +10968,7 @@
           "Default": "Features"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -10991,7 +10977,7 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -11020,7 +11006,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -11236,7 +11221,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -11262,7 +11247,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -11274,7 +11259,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -11283,10 +11268,10 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
-          "Name": "GroupIdColumn",
+          "Name": "RowGroupColumnName",
           "Type": "String",
           "Desc": "Column to use for example groupId",
           "Aliases": [
@@ -11295,7 +11280,7 @@
           "Required": false,
           "SortOrder": 5.0,
           "IsNullable": false,
-          "Default": "GroupId"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -11324,7 +11309,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -11595,6 +11579,15 @@
               10
             ]
           }
+        },
+        {
+          "Name": "Seed",
+          "Type": "Int",
+          "Desc": "Sets the random seed for LightGBM to use.",
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": true,
+          "Default": null
         },
         {
           "Name": "ParallelTrainer",
@@ -11731,7 +11724,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -11757,7 +11750,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -11769,7 +11762,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -11778,10 +11771,10 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
-          "Name": "GroupIdColumn",
+          "Name": "RowGroupColumnName",
           "Type": "String",
           "Desc": "Column to use for example groupId",
           "Aliases": [
@@ -11790,7 +11783,7 @@
           "Required": false,
           "SortOrder": 5.0,
           "IsNullable": false,
-          "Default": "GroupId"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -11819,7 +11812,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -12090,6 +12082,15 @@
               10
             ]
           }
+        },
+        {
+          "Name": "Seed",
+          "Type": "Int",
+          "Desc": "Sets the random seed for LightGBM to use.",
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": true,
+          "Default": null
         },
         {
           "Name": "ParallelTrainer",
@@ -12226,7 +12227,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -12252,7 +12253,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -12264,7 +12265,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -12273,10 +12274,10 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
-          "Name": "GroupIdColumn",
+          "Name": "RowGroupColumnName",
           "Type": "String",
           "Desc": "Column to use for example groupId",
           "Aliases": [
@@ -12285,7 +12286,7 @@
           "Required": false,
           "SortOrder": 5.0,
           "IsNullable": false,
-          "Default": "GroupId"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -12314,7 +12315,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -12585,6 +12585,15 @@
               10
             ]
           }
+        },
+        {
+          "Name": "Seed",
+          "Type": "Int",
+          "Desc": "Sets the random seed for LightGBM to use.",
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": true,
+          "Default": null
         },
         {
           "Name": "ParallelTrainer",
@@ -12721,7 +12730,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -12747,7 +12756,7 @@
           }
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -12759,7 +12768,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -12768,10 +12777,10 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
-          "Name": "GroupIdColumn",
+          "Name": "RowGroupColumnName",
           "Type": "String",
           "Desc": "Column to use for example groupId",
           "Aliases": [
@@ -12780,7 +12789,7 @@
           "Required": false,
           "SortOrder": 5.0,
           "IsNullable": false,
-          "Default": "GroupId"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -12809,7 +12818,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -13082,6 +13090,15 @@
           }
         },
         {
+          "Name": "Seed",
+          "Type": "Int",
+          "Desc": "Sets the random seed for LightGBM to use.",
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": true,
+          "Default": null
+        },
+        {
           "Name": "ParallelTrainer",
           "Type": {
             "Kind": "Component",
@@ -13135,7 +13152,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -13147,7 +13164,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -13157,6 +13174,18 @@
           "SortOrder": 3.0,
           "IsNullable": false,
           "Default": "Label"
+        },
+        {
+          "Name": "WeightColumn",
+          "Type": "String",
+          "Desc": "Column to use for example weight",
+          "Aliases": [
+            "weight"
+          ],
+          "Required": false,
+          "SortOrder": 4.0,
+          "IsNullable": false,
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -13185,7 +13214,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -13237,11 +13265,12 @@
           }
         },
         {
-          "Name": "NumIterations",
+          "Name": "NumberOfIterations",
           "Type": "Int",
           "Desc": "Number of iterations",
           "Aliases": [
-            "iter"
+            "iter",
+            "numIterations"
           ],
           "Required": false,
           "SortOrder": 50.0,
@@ -13256,11 +13285,12 @@
           }
         },
         {
-          "Name": "InitWtsDiameter",
+          "Name": "InitialWeightsDiameter",
           "Type": "Float",
           "Desc": "Init weights diameter",
           "Aliases": [
-            "initwts"
+            "initwts",
+            "initWtsDiameter"
           ],
           "Required": false,
           "SortOrder": 140.0,
@@ -13344,18 +13374,6 @@
           }
         },
         {
-          "Name": "StreamingCacheSize",
-          "Type": "Int",
-          "Desc": "Size of cache when trained in Scope",
-          "Aliases": [
-            "cache"
-          ],
-          "Required": false,
-          "SortOrder": 150.0,
-          "IsNullable": false,
-          "Default": 1000000
-        },
-        {
           "Name": "BatchSize",
           "Type": "Int",
           "Desc": "Batch size",
@@ -13402,7 +13420,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -13414,7 +13432,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -13426,7 +13444,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -13435,7 +13453,7 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -13464,7 +13482,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -13714,7 +13731,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -13726,7 +13743,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -13738,7 +13755,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -13747,7 +13764,7 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -13776,7 +13793,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -14026,7 +14042,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -14038,7 +14054,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -14076,7 +14092,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -14124,7 +14139,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -14136,7 +14151,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -14174,7 +14189,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -14262,11 +14276,12 @@
           }
         },
         {
-          "Name": "NumIterations",
+          "Name": "NumberOfIterations",
           "Type": "Int",
           "Desc": "Number of iterations",
           "Aliases": [
-            "iter"
+            "iter",
+            "numIterations"
           ],
           "Required": false,
           "SortOrder": 50.0,
@@ -14281,11 +14296,12 @@
           }
         },
         {
-          "Name": "InitWtsDiameter",
+          "Name": "InitialWeightsDiameter",
           "Type": "Float",
           "Desc": "Init weights diameter",
           "Aliases": [
-            "initwts"
+            "initwts",
+            "initWtsDiameter"
           ],
           "Required": false,
           "SortOrder": 140.0,
@@ -14400,18 +14416,6 @@
               true
             ]
           }
-        },
-        {
-          "Name": "StreamingCacheSize",
-          "Type": "Int",
-          "Desc": "Size of cache when trained in Scope",
-          "Aliases": [
-            "cache"
-          ],
-          "Required": false,
-          "SortOrder": 150.0,
-          "IsNullable": false,
-          "Default": 1000000
         }
       ],
       "Outputs": [
@@ -14448,7 +14452,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -14460,7 +14464,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -14472,7 +14476,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -14481,7 +14485,7 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -14510,7 +14514,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -14591,7 +14594,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -14603,7 +14606,7 @@
           "Default": "Features"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -14612,7 +14615,7 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -14641,7 +14644,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -14758,7 +14760,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -14770,7 +14772,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -14782,7 +14784,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -14791,7 +14793,7 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -14820,7 +14822,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -15105,7 +15106,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -15117,7 +15118,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -15155,7 +15156,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -15200,18 +15200,6 @@
           "Default": null
         },
         {
-          "Name": "PositiveInstanceWeight",
-          "Type": "Float",
-          "Desc": "Apply weight to the positive class, for imbalanced data",
-          "Aliases": [
-            "piw"
-          ],
-          "Required": false,
-          "SortOrder": 150.0,
-          "IsNullable": false,
-          "Default": 1.0
-        },
-        {
           "Name": "Calibrator",
           "Type": {
             "Kind": "Component",
@@ -15233,6 +15221,18 @@
           "SortOrder": 150.0,
           "IsNullable": false,
           "Default": 1000000
+        },
+        {
+          "Name": "PositiveInstanceWeight",
+          "Type": "Float",
+          "Desc": "Apply weight to the positive class, for imbalanced data",
+          "Aliases": [
+            "piw"
+          ],
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": false,
+          "Default": 1.0
         },
         {
           "Name": "ConvergenceTolerance",
@@ -15410,7 +15410,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -15422,7 +15422,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -15460,7 +15460,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -15680,7 +15679,7 @@
           }
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -15692,7 +15691,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -15730,7 +15729,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -15903,7 +15901,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -15915,7 +15913,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -15927,7 +15925,7 @@
           "Default": "Label"
         },
         {
-          "Name": "WeightColumn",
+          "Name": "ExampleWeightColumnName",
           "Type": "String",
           "Desc": "Column to use for example weight",
           "Aliases": [
@@ -15936,7 +15934,7 @@
           "Required": false,
           "SortOrder": 4.0,
           "IsNullable": false,
-          "Default": "Weight"
+          "Default": null
         },
         {
           "Name": "NormalizeFeatures",
@@ -15965,7 +15963,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -16030,6 +16027,29 @@
           "SortOrder": 50.0,
           "IsNullable": true,
           "Default": null
+        },
+        {
+          "Name": "Calibrator",
+          "Type": {
+            "Kind": "Component",
+            "ComponentKind": "CalibratorTrainer"
+          },
+          "Desc": "The calibrator kind to apply to the predictor. Specify null for no calibration",
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": false,
+          "Default": {
+            "Name": "PlattCalibrator"
+          }
+        },
+        {
+          "Name": "MaxCalibrationExamples",
+          "Type": "Int",
+          "Desc": "The maximum number of examples to use when training the calibrator",
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": false,
+          "Default": 1000000
         },
         {
           "Name": "ConvergenceTolerance",
@@ -16128,29 +16148,6 @@
           "SortOrder": 150.0,
           "IsNullable": true,
           "Default": null
-        },
-        {
-          "Name": "Calibrator",
-          "Type": {
-            "Kind": "Component",
-            "ComponentKind": "CalibratorTrainer"
-          },
-          "Desc": "The calibrator kind to apply to the predictor. Specify null for no calibration",
-          "Required": false,
-          "SortOrder": 150.0,
-          "IsNullable": false,
-          "Default": {
-            "Name": "PlattCalibrator"
-          }
-        },
-        {
-          "Name": "MaxCalibrationExamples",
-          "Type": "Int",
-          "Desc": "The maximum number of examples to use when training the calibrator",
-          "Required": false,
-          "SortOrder": 150.0,
-          "IsNullable": false,
-          "Default": 1000000
         }
       ],
       "Outputs": [
@@ -16188,7 +16185,7 @@
           "IsNullable": false
         },
         {
-          "Name": "FeatureColumn",
+          "Name": "FeatureColumnName",
           "Type": "String",
           "Desc": "Column to use for features",
           "Aliases": [
@@ -16200,7 +16197,7 @@
           "Default": "Features"
         },
         {
-          "Name": "LabelColumn",
+          "Name": "LabelColumnName",
           "Type": "String",
           "Desc": "Column to use for labels",
           "Aliases": [
@@ -16238,7 +16235,6 @@
             "Values": [
               "Auto",
               "Memory",
-              "Disk",
               "None"
             ]
           },
@@ -17807,47 +17803,6 @@
       ]
     },
     {
-      "Name": "Transforms.DataCache",
-      "Desc": "Caches using the specified cache option.",
-      "FriendlyName": "Cache Data",
-      "ShortName": null,
-      "Inputs": [
-        {
-          "Name": "Data",
-          "Type": "DataView",
-          "Desc": "Input dataset",
-          "Required": true,
-          "SortOrder": 1.0,
-          "IsNullable": false
-        },
-        {
-          "Name": "Caching",
-          "Type": {
-            "Kind": "Enum",
-            "Values": [
-              "Memory",
-              "Disk"
-            ]
-          },
-          "Desc": "Caching strategy",
-          "Required": true,
-          "SortOrder": 2.0,
-          "IsNullable": false,
-          "Default": "Memory"
-        }
-      ],
-      "Outputs": [
-        {
-          "Name": "OutputData",
-          "Type": "DataView",
-          "Desc": "Dataset"
-        }
-      ],
-      "InputKind": [
-        "ITransformInput"
-      ]
-    },
-    {
       "Name": "Transforms.DatasetScorer",
       "Desc": "Score a dataset with a predictor model",
       "FriendlyName": null,
@@ -18908,12 +18863,28 @@
                   "Default": null
                 },
                 {
-                  "Name": "InterleaveArgb",
+                  "Name": "Order",
+                  "Type": {
+                    "Kind": "Enum",
+                    "Values": [
+                      "ARGB",
+                      "ARBG",
+                      "ABRG",
+                      "ABGR",
+                      "AGRB",
+                      "AGBR"
+                    ]
+                  },
+                  "Desc": "Order of channels",
+                  "Required": false,
+                  "SortOrder": 150.0,
+                  "IsNullable": true,
+                  "Default": null
+                },
+                {
+                  "Name": "Interleave",
                   "Type": "Bool",
-                  "Desc": "Whether to separate each channel or interleave in ARGB order",
-                  "Aliases": [
-                    "interleave"
-                  ],
+                  "Desc": "Whether to separate each channel or interleave in specified order",
                   "Required": false,
                   "SortOrder": 150.0,
                   "IsNullable": true,
@@ -19041,12 +19012,28 @@
           "Default": true
         },
         {
-          "Name": "InterleaveArgb",
+          "Name": "Order",
+          "Type": {
+            "Kind": "Enum",
+            "Values": [
+              "ARGB",
+              "ARBG",
+              "ABRG",
+              "ABGR",
+              "AGRB",
+              "AGBR"
+            ]
+          },
+          "Desc": "Order of colors.",
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": false,
+          "Default": "ARGB"
+        },
+        {
+          "Name": "Interleave",
           "Type": "Bool",
-          "Desc": "Whether to separate each channel or interleave in ARGB order",
-          "Aliases": [
-            "interleave"
-          ],
+          "Desc": "Whether to separate each channel or interleave in specified order",
           "Required": false,
           "SortOrder": 150.0,
           "IsNullable": false,
@@ -19145,7 +19132,8 @@
                     "Kind": "Enum",
                     "Values": [
                       "IsoPad",
-                      "IsoCrop"
+                      "IsoCrop",
+                      "Fill"
                     ]
                   },
                   "Desc": "Resizing method",
@@ -19251,7 +19239,8 @@
             "Kind": "Enum",
             "Values": [
               "IsoPad",
-              "IsoCrop"
+              "IsoCrop",
+              "Fill"
             ]
           },
           "Desc": "Resizing method",
@@ -21922,7 +21911,7 @@
     {
       "Name": "Transforms.ScoreColumnSelector",
       "Desc": "Selects only the last score columns and the extra columns specified in the arguments.",
-      "FriendlyName": "Choose Columns By Index",
+      "FriendlyName": "Choose Columns By Indices",
       "ShortName": null,
       "Inputs": [
         {
@@ -22996,12 +22985,28 @@
                   "Default": null
                 },
                 {
-                  "Name": "InterleaveArgb",
+                  "Name": "Order",
+                  "Type": {
+                    "Kind": "Enum",
+                    "Values": [
+                      "ARGB",
+                      "ARBG",
+                      "ABRG",
+                      "ABGR",
+                      "AGRB",
+                      "AGBR"
+                    ]
+                  },
+                  "Desc": "Order of channels",
+                  "Required": false,
+                  "SortOrder": 150.0,
+                  "IsNullable": true,
+                  "Default": null
+                },
+                {
+                  "Name": "Interleave",
                   "Type": "Bool",
-                  "Desc": "Whether to separate each channel or interleave in ARGB order",
-                  "Aliases": [
-                    "interleave"
-                  ],
+                  "Desc": "Whether to separate each channel or interleave in specified order",
                   "Required": false,
                   "SortOrder": 150.0,
                   "IsNullable": true,
@@ -23044,6 +23049,42 @@
                   "Name": "Scale",
                   "Type": "Float",
                   "Desc": "Scale factor",
+                  "Required": false,
+                  "SortOrder": 150.0,
+                  "IsNullable": true,
+                  "Default": null
+                },
+                {
+                  "Name": "DefaultAlpha",
+                  "Type": "Int",
+                  "Desc": "Default value for alpha channel. Will be used if ContainsAlpha set to false",
+                  "Required": false,
+                  "SortOrder": 150.0,
+                  "IsNullable": true,
+                  "Default": null
+                },
+                {
+                  "Name": "DefaultRed",
+                  "Type": "Int",
+                  "Desc": "Default value for red channel. Will be used if ContainsRed set to false",
+                  "Required": false,
+                  "SortOrder": 150.0,
+                  "IsNullable": true,
+                  "Default": null
+                },
+                {
+                  "Name": "DefaultGreen",
+                  "Type": "Int",
+                  "Desc": "Default value for green channel. Will be used if ContainsGreen set to false",
+                  "Required": false,
+                  "SortOrder": 150.0,
+                  "IsNullable": true,
+                  "Default": null
+                },
+                {
+                  "Name": "DefaultBlue",
+                  "Type": "Int",
+                  "Desc": "Default value for blue channel. Will be used if ContainsGreen set to false",
                   "Required": false,
                   "SortOrder": 150.0,
                   "IsNullable": true,
@@ -23141,12 +23182,28 @@
           "Default": true
         },
         {
-          "Name": "InterleaveArgb",
+          "Name": "Order",
+          "Type": {
+            "Kind": "Enum",
+            "Values": [
+              "ARGB",
+              "ARBG",
+              "ABRG",
+              "ABGR",
+              "AGRB",
+              "AGBR"
+            ]
+          },
+          "Desc": "Order of colors.",
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": false,
+          "Default": "ARGB"
+        },
+        {
+          "Name": "Interleave",
           "Type": "Bool",
-          "Desc": "Whether to separate each channel or interleave in ARGB order",
-          "Aliases": [
-            "interleave"
-          ],
+          "Desc": "Whether to separate each channel or interleave in specified order",
           "Required": false,
           "SortOrder": 150.0,
           "IsNullable": false,
@@ -23182,8 +23239,8 @@
           "Desc": "Offset (pre-scale)",
           "Required": false,
           "SortOrder": 150.0,
-          "IsNullable": true,
-          "Default": null
+          "IsNullable": false,
+          "Default": 0.0
         },
         {
           "Name": "Scale",
@@ -23191,8 +23248,44 @@
           "Desc": "Scale factor",
           "Required": false,
           "SortOrder": 150.0,
-          "IsNullable": true,
-          "Default": null
+          "IsNullable": false,
+          "Default": 1.0
+        },
+        {
+          "Name": "DefaultAlpha",
+          "Type": "Int",
+          "Desc": "Default value for alpha channel. Will be used if ContainsAlpha set to false",
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": false,
+          "Default": 255
+        },
+        {
+          "Name": "DefaultRed",
+          "Type": "Int",
+          "Desc": "Default value for red channel. Will be used if ContainsRed set to false",
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": false,
+          "Default": 0
+        },
+        {
+          "Name": "DefaultGreen",
+          "Type": "Int",
+          "Desc": "Default value for green channel. Will be used if ContainsGreen set to false",
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": false,
+          "Default": 0
+        },
+        {
+          "Name": "DefaultBlue",
+          "Type": "Int",
+          "Desc": "Default value for blue channel. Will be used if ContainsBlue set to false",
+          "Required": false,
+          "SortOrder": 150.0,
+          "IsNullable": false,
+          "Default": 0
         }
       ],
       "Outputs": [
@@ -25023,7 +25116,7 @@
               }
             },
             {
-              "Name": "FeatureColumn",
+              "Name": "FeatureColumnName",
               "Type": "String",
               "Desc": "Column to use for features",
               "Aliases": [
@@ -25055,7 +25148,7 @@
               }
             },
             {
-              "Name": "LabelColumn",
+              "Name": "LabelColumnName",
               "Type": "String",
               "Desc": "Column to use for labels",
               "Aliases": [
@@ -25085,7 +25178,7 @@
               }
             },
             {
-              "Name": "WeightColumn",
+              "Name": "ExampleWeightColumnName",
               "Type": "String",
               "Desc": "Column to use for example weight",
               "Aliases": [
@@ -25094,10 +25187,10 @@
               "Required": false,
               "SortOrder": 4.0,
               "IsNullable": false,
-              "Default": "Weight"
+              "Default": null
             },
             {
-              "Name": "GroupIdColumn",
+              "Name": "RowGroupColumnName",
               "Type": "String",
               "Desc": "Column to use for example groupId",
               "Aliases": [
@@ -25106,7 +25199,7 @@
               "Required": false,
               "SortOrder": 5.0,
               "IsNullable": false,
-              "Default": "GroupId"
+              "Default": null
             },
             {
               "Name": "NormalizeFeatures",
@@ -25135,7 +25228,6 @@
                 "Values": [
                   "Auto",
                   "Memory",
-                  "Disk",
                   "None"
                 ]
               },
@@ -25917,7 +26009,7 @@
               }
             },
             {
-              "Name": "FeatureColumn",
+              "Name": "FeatureColumnName",
               "Type": "String",
               "Desc": "Column to use for features",
               "Aliases": [
@@ -25949,7 +26041,7 @@
               }
             },
             {
-              "Name": "LabelColumn",
+              "Name": "LabelColumnName",
               "Type": "String",
               "Desc": "Column to use for labels",
               "Aliases": [
@@ -25979,7 +26071,7 @@
               }
             },
             {
-              "Name": "WeightColumn",
+              "Name": "ExampleWeightColumnName",
               "Type": "String",
               "Desc": "Column to use for example weight",
               "Aliases": [
@@ -25988,10 +26080,10 @@
               "Required": false,
               "SortOrder": 4.0,
               "IsNullable": false,
-              "Default": "Weight"
+              "Default": null
             },
             {
-              "Name": "GroupIdColumn",
+              "Name": "RowGroupColumnName",
               "Type": "String",
               "Desc": "Column to use for example groupId",
               "Aliases": [
@@ -26000,7 +26092,7 @@
               "Required": false,
               "SortOrder": 5.0,
               "IsNullable": false,
-              "Default": "GroupId"
+              "Default": null
             },
             {
               "Name": "NormalizeFeatures",
@@ -26029,7 +26121,6 @@
                 "Values": [
                   "Auto",
                   "Memory",
-                  "Disk",
                   "None"
                 ]
               },
@@ -26892,7 +26983,7 @@
               }
             },
             {
-              "Name": "FeatureColumn",
+              "Name": "FeatureColumnName",
               "Type": "String",
               "Desc": "Column to use for features",
               "Aliases": [
@@ -26924,7 +27015,7 @@
               }
             },
             {
-              "Name": "LabelColumn",
+              "Name": "LabelColumnName",
               "Type": "String",
               "Desc": "Column to use for labels",
               "Aliases": [
@@ -26954,7 +27045,7 @@
               }
             },
             {
-              "Name": "WeightColumn",
+              "Name": "ExampleWeightColumnName",
               "Type": "String",
               "Desc": "Column to use for example weight",
               "Aliases": [
@@ -26963,10 +27054,10 @@
               "Required": false,
               "SortOrder": 4.0,
               "IsNullable": false,
-              "Default": "Weight"
+              "Default": null
             },
             {
-              "Name": "GroupIdColumn",
+              "Name": "RowGroupColumnName",
               "Type": "String",
               "Desc": "Column to use for example groupId",
               "Aliases": [
@@ -26975,7 +27066,7 @@
               "Required": false,
               "SortOrder": 5.0,
               "IsNullable": false,
-              "Default": "GroupId"
+              "Default": null
             },
             {
               "Name": "NormalizeFeatures",
@@ -27004,7 +27095,6 @@
                 "Values": [
                   "Auto",
                   "Memory",
-                  "Disk",
                   "None"
                 ]
               },
@@ -27774,7 +27864,7 @@
               }
             },
             {
-              "Name": "FeatureColumn",
+              "Name": "FeatureColumnName",
               "Type": "String",
               "Desc": "Column to use for features",
               "Aliases": [
@@ -27806,7 +27896,7 @@
               }
             },
             {
-              "Name": "LabelColumn",
+              "Name": "LabelColumnName",
               "Type": "String",
               "Desc": "Column to use for labels",
               "Aliases": [
@@ -27836,7 +27926,7 @@
               }
             },
             {
-              "Name": "WeightColumn",
+              "Name": "ExampleWeightColumnName",
               "Type": "String",
               "Desc": "Column to use for example weight",
               "Aliases": [
@@ -27845,10 +27935,10 @@
               "Required": false,
               "SortOrder": 4.0,
               "IsNullable": false,
-              "Default": "Weight"
+              "Default": null
             },
             {
-              "Name": "GroupIdColumn",
+              "Name": "RowGroupColumnName",
               "Type": "String",
               "Desc": "Column to use for example groupId",
               "Aliases": [
@@ -27857,7 +27947,7 @@
               "Required": false,
               "SortOrder": 5.0,
               "IsNullable": false,
-              "Default": "GroupId"
+              "Default": null
             },
             {
               "Name": "NormalizeFeatures",
@@ -27886,7 +27976,6 @@
                 "Values": [
                   "Auto",
                   "Memory",
-                  "Disk",
                   "None"
                 ]
               },

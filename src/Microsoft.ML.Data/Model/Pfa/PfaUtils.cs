@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using Microsoft.Data.DataView;
 using Microsoft.ML.Data;
 using Microsoft.ML.Internal.Utilities;
 using Newtonsoft.Json.Linq;
@@ -154,7 +155,7 @@ namespace Microsoft.ML.Model.Pfa
                 return Union(Map(itemType), Array(itemType));
             }
 
-            public static JToken PfaTypeOrNullForColumnType(ColumnType type)
+            public static JToken PfaTypeOrNullForColumnType(DataViewType type)
             {
                 Contracts.CheckValue(type, nameof(type));
                 if (type is VectorType vectorType)
@@ -169,80 +170,96 @@ namespace Microsoft.ML.Model.Pfa
                 return PfaTypeOrNullCore(type);
             }
 
-            private static JToken PfaTypeOrNullCore(ColumnType itemType)
+            private static JToken PfaTypeOrNullCore(DataViewType itemType)
             {
                 Contracts.AssertValue(itemType);
 
-                if (!(itemType is PrimitiveType))
+                if (!(itemType is PrimitiveDataViewType))
                     return null;
 
                 if (itemType is KeyType keyType)
                 {
                     // Keys will retain the property that they are just numbers,
                     // with 0 representing missing.
-                    if (keyType.Count > 0 || itemType.RawKind != DataKind.U8)
+                    if (keyType.Count > 0 || keyType.RawType != typeof(ulong))
                         return Int;
                     return Long;
                 }
 
-                switch (itemType.RawKind)
+                System.Type rawType = itemType.RawType;
+                if (rawType == typeof(sbyte)
+                    || rawType == typeof(byte)
+                    || rawType == typeof(short)
+                    || rawType == typeof(ushort)
+                    || rawType == typeof(int))
                 {
-                    case DataKind.I1:
-                    case DataKind.U1:
-                    case DataKind.I2:
-                    case DataKind.U2:
-                    case DataKind.I4:
-                        return Int;
-                    case DataKind.U4:
-                    case DataKind.I8:
-                    case DataKind.U8:
-                        return Long;
-                    case DataKind.R4:
-                    // REVIEW: This should really be float. But, for the
+                    return Int;
+                }
+                else if (rawType == typeof(uint)
+                    || rawType == typeof(long)
+                    || rawType == typeof(ulong))
+                {
+                    return Long;
+                }
+                else if(rawType == typeof(float)
+                    // REVIEW: The above should really be float. But, for the
                     // sake of the POC, we use double since all the PFA convenience
                     // libraries operate over doubles.
-                    case DataKind.R8:
-                        return Double;
-                    case DataKind.BL:
-                        return Bool;
-                    case DataKind.TX:
-                        return String;
-                    default:
-                        return null;
+                    || rawType == typeof(double))
+                {
+                    return Double;
                 }
+                else if (rawType == typeof(bool))
+                {
+                    return Bool;
+                }
+                else if (rawType == typeof(System.ReadOnlyMemory<char>)
+                    || rawType == typeof(string))
+                {
+                    return String;
+                }
+
+                return null;
             }
 
-            public static JToken DefaultTokenOrNull(PrimitiveType itemType)
+            public static JToken DefaultTokenOrNull(PrimitiveDataViewType itemType)
             {
                 Contracts.CheckValue(itemType, nameof(itemType));
 
                 if (itemType is KeyType)
                     return 0;
 
-                switch (itemType.RawKind)
+                System.Type rawType = itemType.RawType;
+                if (rawType == typeof(sbyte)
+                    || rawType == typeof(byte)
+                    || rawType == typeof(short)
+                    || rawType == typeof(ushort)
+                    || rawType == typeof(int)
+                    || rawType == typeof(uint)
+                    || rawType == typeof(long)
+                    || rawType == typeof(ulong))
                 {
-                    case DataKind.I1:
-                    case DataKind.U1:
-                    case DataKind.I2:
-                    case DataKind.U2:
-                    case DataKind.I4:
-                    case DataKind.U4:
-                    case DataKind.I8:
-                    case DataKind.U8:
-                        return 0;
-                    case DataKind.R4:
-                    // REVIEW: This should really be float. But, for the
+                    return 0;
+                }
+                else if (rawType == typeof(float)
+                    // REVIEW: The above should really be float. But, for the
                     // sake of the POC, we use double since all the PFA convenience
                     // libraries operate over doubles.
-                    case DataKind.R8:
-                        return 0.0;
-                    case DataKind.BL:
-                        return false;
-                    case DataKind.TX:
-                        return String("");
-                    default:
-                        return null;
+                    || rawType == typeof(double))
+                {
+                    return 0.0;
                 }
+                else if (rawType == typeof(bool))
+                {
+                    return false;
+                }
+                else if (rawType == typeof(System.ReadOnlyMemory<char>)
+                    || rawType == typeof(string))
+                {
+                    return String("");
+                }
+
+                return null;
             }
         }
 

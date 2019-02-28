@@ -4,8 +4,7 @@
 
 using System.Linq;
 using Microsoft.ML.Data;
-using Microsoft.ML.Trainers;
-using Microsoft.ML.Trainers.SymSgd;
+using Microsoft.ML.Trainers.HalLearners;
 using Xunit;
 
 namespace Microsoft.ML.Tests.TrainerEstimators
@@ -16,13 +15,13 @@ namespace Microsoft.ML.Tests.TrainerEstimators
         public void TestEstimatorSymSgdClassificationTrainer()
         {
             (var pipe, var dataView) = GetBinaryClassificationPipeline();
-            var trainer = new SymSgdClassificationTrainer(Env, "Label", "Features");
+            var trainer = new SymSgdClassificationTrainer(Env, new SymSgdClassificationTrainer.Options());
             var pipeWithTrainer = pipe.Append(trainer);
             TestEstimatorCore(pipeWithTrainer, dataView);
 
             var transformedDataView = pipe.Fit(dataView).Transform(dataView);
             var model = trainer.Fit(transformedDataView);
-            trainer.Train(transformedDataView, model.Model);
+            trainer.Fit(transformedDataView, model.Model.SubModel);
             Done();
         }
 
@@ -32,19 +31,20 @@ namespace Microsoft.ML.Tests.TrainerEstimators
             (var pipe, var dataView) = GetBinaryClassificationPipeline();
             var transformedData = pipe.Fit(dataView).Transform(dataView);
 
-            var initPredictor = new SdcaBinaryTrainer(Env, "Label", "Features").Fit(transformedData);
+            var initPredictor = ML.BinaryClassification.Trainers.StochasticDualCoordinateAscent().Fit(transformedData);
             var data = initPredictor.Transform(transformedData);
 
-            var withInitPredictor = new SymSgdClassificationTrainer(Env, "Label", "Features").Train(transformedData, initialPredictor: initPredictor.Model);
+            var withInitPredictor = new SymSgdClassificationTrainer(Env, new SymSgdClassificationTrainer.Options()).Fit(transformedData,
+                modelParameters: initPredictor.Model.SubModel);
             var outInitData = withInitPredictor.Transform(transformedData);
 
-            var notInitPredictor = new SymSgdClassificationTrainer(Env, "Label", "Features").Train(transformedData);
+            var notInitPredictor = new SymSgdClassificationTrainer(Env, new SymSgdClassificationTrainer.Options()).Fit(transformedData);
             var outNoInitData = notInitPredictor.Transform(transformedData);
 
             int numExamples = 10;
-            var col1 = data.GetColumn<float>(Env, "Score").Take(numExamples).ToArray();
-            var col2 = outInitData.GetColumn<float>(Env, "Score").Take(numExamples).ToArray();
-            var col3 = outNoInitData.GetColumn<float>(Env, "Score").Take(numExamples).ToArray();
+            var col1 = data.GetColumn<float>(data.Schema["Score"]).Take(numExamples).ToArray();
+            var col2 = outInitData.GetColumn<float>(outInitData.Schema["Score"]).Take(numExamples).ToArray();
+            var col3 = outNoInitData.GetColumn<float>(outNoInitData.Schema["Score"]).Take(numExamples).ToArray();
 
             bool col12Diff = default;
             bool col23Diff = default;

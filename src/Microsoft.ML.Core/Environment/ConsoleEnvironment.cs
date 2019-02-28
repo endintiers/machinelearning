@@ -2,8 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-#pragma warning disable 420 // volatile with Interlocked.CompareExchange
-
 using System;
 using System.IO;
 using System.Linq;
@@ -393,12 +391,6 @@ namespace Microsoft.ML.Data
         private void PrintMessage(IMessageSource src, ChannelMessage msg)
         {
             Root._consoleWriter.PrintMessage(src, msg);
-        }
-
-        protected override IFileHandle CreateTempFileCore(IHostEnvironment env, string suffix = null, string prefix = null)
-        {
-            // Prefix with "TLC_".
-            return base.CreateTempFileCore(env, suffix, "TLC_" + prefix);
         }
 
         protected override IHost RegisterCore(HostEnvironmentBase<ConsoleEnvironment> source, string shortName, string parentFullName, Random rand, bool verbose, int? conc)

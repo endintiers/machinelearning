@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
@@ -23,7 +24,8 @@ namespace Microsoft.ML.Data.IO
     /// Saver for a format that can be loaded using the <see cref="TransposeLoader"/>.
     /// </summary>
     /// <seealso cref="TransposeLoader"/>
-    public sealed class TransposeSaver : IDataSaver
+    [BestFriend]
+    internal sealed class TransposeSaver : IDataSaver
     {
         public sealed class Arguments
         {
@@ -60,7 +62,7 @@ namespace Microsoft.ML.Data.IO
             _silent = args.Silent;
         }
 
-        public bool IsColumnSavable(ColumnType type)
+        public bool IsColumnSavable(DataViewType type)
         {
             _host.CheckValue(type, nameof(type));
             // We can't transpose variable length columns at all, so nor can we save them.
@@ -70,7 +72,7 @@ namespace Microsoft.ML.Data.IO
             // an artificial vector type out of this. Obviously if you can't make a vector
             // out of the items, then you could not save each slot's values.
             var itemType = type.GetItemType();
-            var primitiveType = itemType as PrimitiveType;
+            var primitiveType = itemType as PrimitiveDataViewType;
             if (primitiveType == null)
                 return false;
             var newVectorType = new VectorType(primitiveType, size: 2);
@@ -109,7 +111,7 @@ namespace Microsoft.ML.Data.IO
             header.Signature = TransposeLoader.Header.SignatureValue;
             header.Version = TransposeLoader.Header.WriterVersion;
             header.CompatibleVersion = TransposeLoader.Header.WriterVersion;
-            VectorType slotType = data.TransposeSchema.GetSlotType(cols[0]);
+            var slotType = data.GetSlotType(cols[0]);
             ch.AssertValue(slotType);
             header.RowCount = slotType.Size;
             header.ColumnCount = cols.Length;
@@ -140,10 +142,10 @@ namespace Microsoft.ML.Data.IO
 
             // First write out the no-row data, limited to these columns.
             IDataView subdata = new ChooseColumnsByIndexTransform(_host,
-                new ChooseColumnsByIndexTransform.Arguments() { Index = cols }, data);
+                new ChooseColumnsByIndexTransform.Options() { Indices = cols }, data);
             // If we want the "dual mode" row-wise and slot-wise file, don't filter out anything.
             if (!_writeRowData)
-                subdata = SkipTakeFilter.Create(_host, new SkipTakeFilter.TakeArguments() { Count = 0 }, subdata);
+                subdata = SkipTakeFilter.Create(_host, new SkipTakeFilter.TakeOptions() { Count = 0 }, subdata);
 
             string msg = _writeRowData ? "row-wise data, schema, and metadata" : "schema and metadata";
             viewAction(msg, subdata);

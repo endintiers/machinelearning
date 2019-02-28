@@ -7,13 +7,13 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
 using Microsoft.ML.EntryPoints;
 using Microsoft.ML.Internal.Utilities;
-using Microsoft.ML.Model;
-using Microsoft.ML.Transforms.Conversions;
+using Microsoft.ML.Transforms;
 
 [assembly: LoadableClass(HashJoiningTransform.Summary, typeof(HashJoiningTransform), typeof(HashJoiningTransform.Arguments), typeof(SignatureDataTransform),
     HashJoiningTransform.UserName, "HashJoinTransform", HashJoiningTransform.RegistrationName)]
@@ -23,14 +23,15 @@ using Microsoft.ML.Transforms.Conversions;
 
 [assembly: EntryPointModule(typeof(HashJoin))]
 
-namespace Microsoft.ML.Transforms.Conversions
+namespace Microsoft.ML.Transforms
 {
     /// <summary>
     /// This transform hashes its input columns. Each column is hashed separately, and within each
     /// column there is an option to specify which slots should be hashed together into one output slot.
     /// This transform can be applied either to single valued columns or to known length vector columns.
     /// </summary>
-    public sealed class HashJoiningTransform : OneToOneTransformBase
+    [BestFriend]
+    internal sealed class HashJoiningTransform : OneToOneTransformBase
     {
         public const int NumBitsMin = 1;
         public const int NumBitsLim = 32;
@@ -46,9 +47,10 @@ namespace Microsoft.ML.Transforms.Conversions
         public sealed class Arguments : TransformInputBase
         {
             [Argument(ArgumentType.Multiple | ArgumentType.Required, HelpText = "New column definition(s) (optional form: name:src)",
+                Name = "Column",
                 ShortName = "col",
                 SortOrder = 1)]
-            public Column[] Column;
+            public Column[] Columns;
 
             [Argument(ArgumentType.AtMostOnce, HelpText = "Whether the values need to be combined for a single hash")]
             public bool Join = Defaults.Join;
@@ -83,7 +85,7 @@ namespace Microsoft.ML.Transforms.Conversions
             [Argument(ArgumentType.AtMostOnce, HelpText = "Whether the position of each term should be included in the hash", ShortName = "ord")]
             public bool? Ordered;
 
-            public static Column Parse(string str)
+            internal static Column Parse(string str)
             {
                 var res = new Column();
                 if (res.TryParse(str))
@@ -91,7 +93,7 @@ namespace Microsoft.ML.Transforms.Conversions
                 return null;
             }
 
-            public bool TryUnparse(StringBuilder sb)
+            internal bool TryUnparse(StringBuilder sb)
             {
                 Contracts.AssertValue(sb);
                 if (Join != null || !string.IsNullOrEmpty(CustomSlotMap) || HashBits != null ||
@@ -103,13 +105,13 @@ namespace Microsoft.ML.Transforms.Conversions
             }
         }
 
-        public sealed class ColumnInfoEx
+        public sealed class ColumnOptions
         {
             // Either VBuffer<Key<U4>> or a single Key<U4>.
             // Note that if CustomSlotMap contains only one array, the output type of the transform will a single Key<U4>.
             // This corresponds to the join=+ case, although now it's possible to omit certain slots entirely.
             // If # of hash bits is less than 31, the key type will have a positive count.
-            public readonly ColumnType OutputColumnType;
+            public readonly DataViewType OutputColumnType;
 
             public readonly int HashBits;
             public readonly uint HashSeed;
@@ -121,7 +123,7 @@ namespace Microsoft.ML.Transforms.Conversions
                 get { return OutputColumnType.GetValueCount(); }
             }
 
-            public ColumnInfoEx(int[][] slotMap, int hashBits, uint hashSeed, bool ordered)
+            public ColumnOptions(int[][] slotMap, int hashBits, uint hashSeed, bool ordered)
             {
                 Contracts.CheckValueOrNull(slotMap);
                 Contracts.Check(NumBitsMin <= hashBits && hashBits < NumBitsLim);
@@ -143,8 +145,8 @@ namespace Microsoft.ML.Transforms.Conversions
             /// </summary>
             private static KeyType GetItemType(int hashBits)
             {
-                var keyCount = hashBits < 31 ? 1 << hashBits : 0;
-                return new KeyType(DataKind.U4, 0, keyCount, keyCount > 0);
+                var keyCount = (ulong)1 << hashBits;
+                return new KeyType(typeof(uint), keyCount);
             }
         }
 
@@ -154,7 +156,7 @@ namespace Microsoft.ML.Transforms.Conversions
 
         internal const string UserName = "Hash Join Transform";
 
-        public const string LoaderSignature = "HashJoinTransform";
+        internal const string LoaderSignature = "HashJoinTransform";
         private static VersionInfo GetVersionInfo()
         {
             return new VersionInfo(
@@ -170,7 +172,7 @@ namespace Microsoft.ML.Transforms.Conversions
                 loaderAssemblyName: typeof(HashJoiningTransform).Assembly.FullName);
         }
 
-        private readonly ColumnInfoEx[] _exes;
+        private readonly ColumnOptions[] _exes;
 
         /// <summary>
         /// Initializes a new instance of <see cref="HashJoiningTransform"/>.
@@ -187,31 +189,31 @@ namespace Microsoft.ML.Transforms.Conversions
             string source = null,
              bool join = Defaults.Join,
             int hashBits = Defaults.HashBits)
-            : this(env, new Arguments() { Column = new[] { new Column() { Source = source ?? name, Name = name } }, Join = join, HashBits = hashBits }, input)
+            : this(env, new Arguments() { Columns = new[] { new Column() { Source = source ?? name, Name = name } }, Join = join, HashBits = hashBits }, input)
         {
         }
 
         /// <include file='doc.xml' path='doc/members/member[@name="HashJoin"]/*' />
         public HashJoiningTransform(IHostEnvironment env, Arguments args, IDataView input)
-            : base(env, RegistrationName, Contracts.CheckRef(args, nameof(args)).Column, input, TestColumnType)
+            : base(env, RegistrationName, Contracts.CheckRef(args, nameof(args)).Columns, input, TestColumnType)
         {
             Host.AssertNonEmpty(Infos);
-            Host.Assert(Infos.Length == Utils.Size(args.Column));
+            Host.Assert(Infos.Length == Utils.Size(args.Columns));
 
             if (args.HashBits < NumBitsMin || args.HashBits >= NumBitsLim)
                 throw Host.ExceptUserArg(nameof(args.HashBits), "hashBits should be between {0} and {1} inclusive", NumBitsMin, NumBitsLim - 1);
 
-            _exes = new ColumnInfoEx[Infos.Length];
+            _exes = new ColumnOptions[Infos.Length];
             for (int i = 0; i < Infos.Length; i++)
             {
-                var hashBits = args.Column[i].HashBits ?? args.HashBits;
+                var hashBits = args.Columns[i].HashBits ?? args.HashBits;
                 Host.CheckUserArg(NumBitsMin <= hashBits && hashBits < NumBitsLim, nameof(args.HashBits));
-                _exes[i] = CreateColumnInfoEx(
-                    args.Column[i].Join ?? args.Join,
-                    args.Column[i].CustomSlotMap,
-                    args.Column[i].HashBits ?? args.HashBits,
-                    args.Column[i].Seed ?? args.Seed,
-                    args.Column[i].Ordered ?? args.Ordered,
+                _exes[i] = CreateColumnOptionsEx(
+                    args.Columns[i].Join ?? args.Join,
+                    args.Columns[i].CustomSlotMap,
+                    args.Columns[i].HashBits ?? args.HashBits,
+                    args.Columns[i].Seed ?? args.Seed,
+                    args.Columns[i].Ordered ?? args.Ordered,
                     Infos[i]);
             }
 
@@ -235,7 +237,7 @@ namespace Microsoft.ML.Transforms.Conversions
 
             Host.AssertNonEmpty(Infos);
 
-            _exes = new ColumnInfoEx[Infos.Length];
+            _exes = new ColumnOptions[Infos.Length];
             for (int i = 0; i < Infos.Length; i++)
             {
                 int hashBits = ctx.Reader.ReadInt32();
@@ -265,7 +267,7 @@ namespace Microsoft.ML.Transforms.Conversions
                     }
                 }
 
-                _exes[i] = new ColumnInfoEx(slotMap, hashBits, hashSeed, ordered);
+                _exes[i] = new ColumnOptions(slotMap, hashBits, hashSeed, ordered);
             }
 
             SetMetadata();
@@ -283,7 +285,7 @@ namespace Microsoft.ML.Transforms.Conversions
             return h.Apply("Loading Model", ch => new HashJoiningTransform(h, ctx, input));
         }
 
-        public override void Save(ModelSaveContext ctx)
+        private protected override void SaveModel(ModelSaveContext ctx)
         {
             Host.CheckValue(ctx, nameof(ctx));
             ctx.CheckAtModel();
@@ -324,7 +326,7 @@ namespace Microsoft.ML.Transforms.Conversions
             }
         }
 
-        private ColumnInfoEx CreateColumnInfoEx(bool join, string customSlotMap, int hashBits, uint hashSeed, bool ordered, ColInfo colInfo)
+        private ColumnOptions CreateColumnOptionsEx(bool join, string customSlotMap, int hashBits, uint hashSeed, bool ordered, ColInfo colInfo)
         {
             int[][] slotMap = null;
             if (colInfo.TypeSrc is VectorType vectorType)
@@ -337,7 +339,7 @@ namespace Microsoft.ML.Transforms.Conversions
                 Host.Assert(Utils.Size(slotMap) >= 1);
             }
 
-            return new ColumnInfoEx(slotMap, hashBits, hashSeed, ordered);
+            return new ColumnOptions(slotMap, hashBits, hashSeed, ordered);
         }
 
         private int[][] CompileSlotMap(string slotMapString, int srcSlotCount)
@@ -378,7 +380,7 @@ namespace Microsoft.ML.Transforms.Conversions
             }
         }
 
-        private static string TestColumnType(ColumnType type)
+        private static string TestColumnType(DataViewType type)
         {
             // REVIEW: list all types that can be hashed.
             if (type.GetValueCount() > 0)
@@ -396,8 +398,8 @@ namespace Microsoft.ML.Transforms.Conversions
                     continue;
                 using (var bldr = md.BuildMetadata(i))
                 {
-                    bldr.AddGetter<VBuffer<ReadOnlyMemory<char>>>(MetadataUtils.Kinds.SlotNames,
-                        new VectorType(TextType.Instance, ex.SlotMap.Length), GetSlotNames);
+                    bldr.AddGetter<VBuffer<ReadOnlyMemory<char>>>(AnnotationUtils.Kinds.SlotNames,
+                        new VectorType(TextDataViewType.Instance, ex.SlotMap.Length), GetSlotNames);
                 }
             }
             md.Seal();
@@ -417,7 +419,7 @@ namespace Microsoft.ML.Transforms.Conversions
             VBuffer<ReadOnlyMemory<char>> srcSlotNames = default;
             if (!useDefaultSlotNames)
             {
-                Source.Schema[Infos[iinfo].Source].Metadata.GetValue(MetadataUtils.Kinds.SlotNames, ref srcSlotNames);
+                Source.Schema[Infos[iinfo].Source].Annotations.GetValue(AnnotationUtils.Kinds.SlotNames, ref srcSlotNames);
                 useDefaultSlotNames =
                     !srcSlotNames.IsDense
                     || srcSlotNames.Length != Infos[iinfo].TypeSrc.GetValueCount();
@@ -455,7 +457,7 @@ namespace Microsoft.ML.Transforms.Conversions
         private static MethodInfo _methGetterVecToVec;
         private static MethodInfo _methGetterVecToOne;
 
-        protected override Delegate GetGetterCore(IChannel ch, Row input, int iinfo, out Action disposer)
+        protected override Delegate GetGetterCore(IChannel ch, DataViewRow input, int iinfo, out Action disposer)
         {
             Host.AssertValueOrNull(ch);
             Host.AssertValue(input);
@@ -465,17 +467,17 @@ namespace Microsoft.ML.Transforms.Conversions
             // Construct MethodInfos templates that we need for the generic methods.
             if (_methGetterOneToOne == null)
             {
-                Func<Row, int, ValueGetter<uint>> del = ComposeGetterOneToOne<int>;
+                Func<DataViewRow, int, ValueGetter<uint>> del = ComposeGetterOneToOne<int>;
                 Interlocked.CompareExchange(ref _methGetterOneToOne, del.GetMethodInfo().GetGenericMethodDefinition(), null);
             }
             if (_methGetterVecToVec == null)
             {
-                Func<Row, int, ValueGetter<VBuffer<uint>>> del = ComposeGetterVecToVec<int>;
+                Func<DataViewRow, int, ValueGetter<VBuffer<uint>>> del = ComposeGetterVecToVec<int>;
                 Interlocked.CompareExchange(ref _methGetterVecToVec, del.GetMethodInfo().GetGenericMethodDefinition(), null);
             }
             if (_methGetterVecToOne == null)
             {
-                Func<Row, int, ValueGetter<uint>> del = ComposeGetterVecToOne<int>;
+                Func<DataViewRow, int, ValueGetter<uint>> del = ComposeGetterVecToOne<int>;
                 Interlocked.CompareExchange(ref _methGetterVecToOne, del.GetMethodInfo().GetGenericMethodDefinition(), null);
             }
 
@@ -483,7 +485,7 @@ namespace Microsoft.ML.Transforms.Conversions
             // First, we take a method info for GetGetter<int>
             // Then, we replace <int> with correct type of the input
             // And then we generate a delegate using the generic delegate generator
-            ColumnType itemType;
+            DataViewType itemType;
             MethodInfo mi;
             if (!(Infos[iinfo].TypeSrc is VectorType vectorType))
             {
@@ -509,7 +511,7 @@ namespace Microsoft.ML.Transforms.Conversions
         /// <typeparam name="TSrc">Input type. Must be a non-vector</typeparam>
         /// <param name="input">Row inout</param>
         /// <param name="iinfo">Index of the getter</param>
-        private ValueGetter<uint> ComposeGetterOneToOne<TSrc>(Row input, int iinfo)
+        private ValueGetter<uint> ComposeGetterOneToOne<TSrc>(DataViewRow input, int iinfo)
         {
             Host.AssertValue(input);
             Host.Assert(!(Infos[iinfo].TypeSrc is VectorType));
@@ -533,7 +535,7 @@ namespace Microsoft.ML.Transforms.Conversions
         /// <typeparam name="TSrc">Input type. Must be a vector</typeparam>
         /// <param name="input">Row input</param>
         /// <param name="iinfo">Index of the getter</param>
-        private ValueGetter<VBuffer<uint>> ComposeGetterVecToVec<TSrc>(Row input, int iinfo)
+        private ValueGetter<VBuffer<uint>> ComposeGetterVecToVec<TSrc>(DataViewRow input, int iinfo)
         {
             Host.AssertValue(input);
             VectorType srcType = Infos[iinfo].TypeSrc as VectorType;
@@ -581,7 +583,7 @@ namespace Microsoft.ML.Transforms.Conversions
         /// <typeparam name="TSrc">Input type. Must be a vector</typeparam>
         /// <param name="input">Row input</param>
         /// <param name="iinfo">Index of the getter</param>
-        private ValueGetter<uint> ComposeGetterVecToOne<TSrc>(Row input, int iinfo)
+        private ValueGetter<uint> ComposeGetterVecToOne<TSrc>(DataViewRow input, int iinfo)
         {
             Host.AssertValue(input);
             VectorType srcType = Infos[iinfo].TypeSrc as VectorType;
@@ -660,21 +662,19 @@ namespace Microsoft.ML.Transforms.Conversions
             return Hashing.MurmurRound(hash, Utils.GetHi(v));
         }
 
-        protected override ColumnType GetColumnTypeCore(int iinfo)
+        protected override DataViewType GetColumnTypeCore(int iinfo)
         {
             Host.Assert(iinfo >= 0 && iinfo < _exes.Length);
             return _exes[iinfo].OutputColumnType;
         }
     }
 
-    public static class HashJoin
+    internal static class HashJoin
     {
         [TlcModule.EntryPoint(Name = "Transforms.HashConverter",
             Desc = HashJoiningTransform.Summary,
             UserName = HashJoiningTransform.UserName,
-            ShortName = HashJoiningTransform.RegistrationName,
-            XmlInclude = new[] { @"<include file='../Microsoft.ML.Transforms/doc.xml' path='doc/members/member[@name=""HashJoin""]/*' />",
-                                 @"<include file='../Microsoft.ML.Transforms/doc.xml' path='doc/members/example[@name=""HashJoin""]/*' />"})]
+            ShortName = HashJoiningTransform.RegistrationName)]
         public static CommonOutputs.TransformOutput Apply(IHostEnvironment env, HashJoiningTransform.Arguments input)
         {
             Contracts.CheckValue(env, nameof(env));

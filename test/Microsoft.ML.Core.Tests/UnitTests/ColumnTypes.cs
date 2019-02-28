@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Data;
 using Microsoft.ML.ImageAnalytics;
 using Xunit;
@@ -13,12 +14,12 @@ namespace Microsoft.ML.RunTests
         [Fact]
         public void TestEqualAndGetHashCode()
         {
-            var dict = new Dictionary<ColumnType, string>();
+            var dict = new Dictionary<DataViewType, string>();
             // add PrimitiveTypes, KeyType & corresponding VectorTypes
             VectorType tmp1, tmp2;
-            var types = new PrimitiveType[] { NumberType.I1, NumberType.I2, NumberType.I4, NumberType.I8,
-                NumberType.U1, NumberType.U2, NumberType.U4, NumberType.U8, NumberType.UG,
-                TextType.Instance, BoolType.Instance, DateTimeType.Instance, DateTimeOffsetType.Instance, TimeSpanType.Instance };
+            var types = new PrimitiveDataViewType[] { NumberDataViewType.SByte, NumberDataViewType.Int16, NumberDataViewType.Int32, NumberDataViewType.Int64,
+                NumberDataViewType.Byte, NumberDataViewType.UInt16, NumberDataViewType.UInt32, NumberDataViewType.UInt64, RowIdDataViewType.Instance,
+                TextDataViewType.Instance, BooleanDataViewType.Instance, DateTimeDataViewType.Instance, DateTimeOffsetDataViewType.Instance, TimeSpanDataViewType.Instance };
 
             foreach (var type in types)
             {
@@ -47,9 +48,9 @@ namespace Microsoft.ML.RunTests
                     continue;
                 for (ulong min = 0; min < 5; min++)
                 {
-                    for (var count = 0; count < 5; count++)
+                    for (var count = 1; count < 5; count++)
                     {
-                        tmp = new KeyType(rawType, min, count);
+                        tmp = new KeyType(rawType, count);
                         if (dict.ContainsKey(tmp) && dict[tmp] != tmp.ToString())
                             Assert.True(false, dict[tmp] + " and " + tmp.ToString() + " are duplicates.");
                         dict[tmp] = tmp.ToString();
@@ -68,7 +69,8 @@ namespace Microsoft.ML.RunTests
                             }
                         }
                     }
-                    tmp = new KeyType(rawType, min, 0, false);
+                    Assert.True(rawType.TryGetDataKind(out var kind));
+                    tmp = new KeyType(rawType, kind.ToMaxInt());
                     if (dict.ContainsKey(tmp) && dict[tmp] != tmp.ToString())
                         Assert.True(false, dict[tmp] + " and " + tmp.ToString() + " are duplicates.");
                     dict[tmp] = tmp.ToString();

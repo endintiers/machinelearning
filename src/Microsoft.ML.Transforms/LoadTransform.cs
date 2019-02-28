@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
@@ -21,7 +22,7 @@ namespace Microsoft.ML.Transforms
     /// Load specific transforms from the specified model file. Allows one to 'cherry pick' transforms from
     /// a serialized chain, or to apply a pre-trained transform to a different (but still compatible) data view.
     /// </summary>
-    public static class LoadTransform
+    internal static class LoadTransform
     {
         public class Arguments
         {
@@ -31,8 +32,9 @@ namespace Microsoft.ML.Transforms
                 SortOrder = 1, IsInputFileName = true)]
             public string ModelFile;
 
-            [Argument(ArgumentType.Multiple, HelpText = "The tags (comma-separated) to be loaded (or omitted, if " + nameof(Complement) + "+)", SortOrder = 2)]
-            public string[] Tag;
+            [Argument(ArgumentType.Multiple, HelpText = "The tags (comma-separated) to be loaded (or omitted, if " + nameof(Complement) + "+)",
+                Name = "Tag", SortOrder = 2)]
+            public string[] Tags;
 
             [Argument(ArgumentType.AtMostOnce, HelpText = "Whether to load all transforms except those marked by tags", ShortName = "comp", SortOrder = 3)]
             public bool Complement = false;
@@ -53,7 +55,7 @@ namespace Microsoft.ML.Transforms
             var args = new Arguments()
             {
                 ModelFile = modelFile,
-                Tag = tag,
+                Tags = tag,
                 Complement = complement
             };
             return Create(env, args, input);
@@ -71,11 +73,11 @@ namespace Microsoft.ML.Transforms
             IDataView currentView;
 
             // If there are no 'tag' parameters, we load everything, regardless of 'comp'.
-            bool complement = args.Complement || Utils.Size(args.Tag) == 0;
+            bool complement = args.Complement || Utils.Size(args.Tags) == 0;
             var allTags = new HashSet<string>();
-            for (int i = 0; i < Utils.Size(args.Tag); i++)
+            for (int i = 0; i < Utils.Size(args.Tags); i++)
             {
-                var curList = args.Tag[i];
+                var curList = args.Tags[i];
                 if (string.IsNullOrWhiteSpace(curList))
                     continue;
 
@@ -99,7 +101,7 @@ namespace Microsoft.ML.Transforms
             using (var pipeLoaderEntry = rep.OpenEntry(ModelFileUtils.DirDataLoaderModel, ModelLoadContext.ModelStreamName))
             using (var ctx = new ModelLoadContext(rep, pipeLoaderEntry, ModelFileUtils.DirDataLoaderModel))
             {
-                currentView = CompositeDataLoader.LoadSelectedTransforms(ctx, input, h, predicate);
+                currentView = LegacyCompositeDataLoader.LoadSelectedTransforms(ctx, input, h, predicate);
 
                 if (currentView == input)
                 {
@@ -113,7 +115,7 @@ namespace Microsoft.ML.Transforms
                                 ? "transforms that don't have tags from the list: '{0}'"
                                 : "transforms that have tags from the list: '{0}'",
                             string.Join(",", allTags));
-                    throw h.ExceptUserArg(nameof(args.Tag), "No transforms were found that match the search criteria ({0})", criteria);
+                    throw h.ExceptUserArg(nameof(args.Tags), "No transforms were found that match the search criteria ({0})", criteria);
                 }
             }
 

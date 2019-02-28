@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
@@ -14,7 +15,7 @@ namespace Microsoft.ML.EntryPoints
     /// <summary>
     /// A component for importing text files as <see cref="IDataView"/>.
     /// </summary>
-    public static class ImportTextData
+    internal static class ImportTextData
     {
         public sealed class Input
         {
@@ -48,7 +49,7 @@ namespace Microsoft.ML.EntryPoints
             public IFileHandle InputFile;
 
             [Argument(ArgumentType.Required, ShortName = "args", HelpText = "Arguments", SortOrder = 2)]
-            public TextLoader.Arguments Arguments = new TextLoader.Arguments();
+            public TextLoader.Options Arguments = new TextLoader.Options();
         }
 
         [TlcModule.EntryPoint(Name = "Data.TextLoader", Desc = "Import a dataset from a text file")]

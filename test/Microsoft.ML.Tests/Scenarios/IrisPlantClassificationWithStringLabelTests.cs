@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for more information.
 
 using Microsoft.ML.Data;
+using Microsoft.ML.Trainers;
 using Xunit;
 
 namespace Microsoft.ML.Scenarios
@@ -14,13 +15,13 @@ namespace Microsoft.ML.Scenarios
         {
             var mlContext = new MLContext(seed: 1, conc: 1);
 
-            var reader = mlContext.Data.CreateTextReader(columns: new[]
+            var reader = mlContext.Data.CreateTextLoader(columns: new[]
                 {
-                    new TextLoader.Column("SepalLength", DataKind.R4, 0),
-                    new TextLoader.Column("SepalWidth", DataKind.R4, 1),
-                    new TextLoader.Column("PetalLength", DataKind.R4, 2),
-                    new TextLoader.Column("PetalWidth", DataKind.R4, 3),
-                    new TextLoader.Column("IrisPlantType", DataKind.TX, 4),
+                    new TextLoader.Column("SepalLength", DataKind.Single, 0),
+                    new TextLoader.Column("SepalWidth", DataKind.Single, 1),
+                    new TextLoader.Column("PetalLength", DataKind.Single, 2),
+                    new TextLoader.Column("PetalWidth", DataKind.Single, 3),
+                    new TextLoader.Column("IrisPlantType", DataKind.String, 4),
                 },
                 separatorChar: ','
             );
@@ -28,16 +29,17 @@ namespace Microsoft.ML.Scenarios
             // Read training and test data sets
             string dataPath = GetDataPath("iris.data");
             string testDataPath = dataPath;
-            var trainData = reader.Read(dataPath);
-            var testData = reader.Read(testDataPath);
+            var trainData = reader.Load(dataPath);
+            var testData = reader.Load(testDataPath);
 
             // Create Estimator
             var pipe = mlContext.Transforms.Concatenate("Features", "SepalLength", "SepalWidth", "PetalLength", "PetalWidth")
                 .Append(mlContext.Transforms.Normalize("Features"))
-                .Append(mlContext.Transforms.Conversion.MapValueToKey("IrisPlantType", "Label"), TransformerScope.TrainTest)
+                .Append(mlContext.Transforms.Conversion.MapValueToKey("Label", "IrisPlantType"), TransformerScope.TrainTest)
                 .AppendCacheCheckpoint(mlContext)
-                .Append(mlContext.MulticlassClassification.Trainers.StochasticDualCoordinateAscent("Label", "Features", advancedSettings: s => s.NumThreads = 1))
-                .Append(mlContext.Transforms.Conversion.MapKeyToValue(("PredictedLabel", "Plant")));
+                .Append(mlContext.MulticlassClassification.Trainers.StochasticDualCoordinateAscent(
+                    new SdcaMultiClassTrainer.Options { NumThreads = 1 }))
+                .Append(mlContext.Transforms.Conversion.MapKeyToValue(("Plant", "PredictedLabel")));
 
             // Train the pipeline
             var trainedModel = pipe.Fit(trainData);
@@ -87,8 +89,8 @@ namespace Microsoft.ML.Scenarios
             var predicted = trainedModel.Transform(testData);
             var metrics = mlContext.MulticlassClassification.Evaluate(predicted, topK: 3);
 
-            Assert.Equal(.98, metrics.AccuracyMacro);
-            Assert.Equal(.98, metrics.AccuracyMicro, 2);
+            Assert.Equal(.98, metrics.MacroAccuracy);
+            Assert.Equal(.98, metrics.MicroAccuracy, 2);
             Assert.Equal(.06, metrics.LogLoss, 2);
             Assert.InRange(metrics.LogLossReduction, 94, 96);
             Assert.Equal(1, metrics.TopKAccuracy);

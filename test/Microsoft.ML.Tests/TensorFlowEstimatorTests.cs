@@ -5,11 +5,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using Microsoft.ML.Core.Data;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Data;
 using Microsoft.ML.Model;
 using Microsoft.ML.RunTests;
 using Microsoft.ML.StaticPipe;
+using Microsoft.ML.TestFramework.Attributes;
 using Microsoft.ML.Tools;
 using Microsoft.ML.Transforms;
 using Microsoft.ML.Transforms.StaticPipe;
@@ -54,12 +55,12 @@ namespace Microsoft.ML.Tests
         {
         }
 
-        [ConditionalFact(typeof(Environment), nameof(Environment.Is64BitProcess))] // TensorFlow is 64-bit only
+        [TensorFlowFact]
         void TestSimpleCase()
         {
             var modelFile = "model_matmul/frozen_saved_model.pb";
 
-            var dataView = ComponentCreation.CreateDataView(Env,
+            var dataView = ML.Data.LoadFromEnumerable(
                 new List<TestData>(new TestData[] {
                     new TestData()
                     {
@@ -76,11 +77,11 @@ namespace Microsoft.ML.Tests
             var xyData = new List<TestDataXY> { new TestDataXY() { A = new float[4], B = new float[4] } };
             var stringData = new List<TestDataDifferntType> { new TestDataDifferntType() { a = new string[4], b = new string[4] } };
             var sizeData = new List<TestDataSize> { new TestDataSize() { a = new float[2], b = new float[2] } };
-            var pipe = new TensorFlowEstimator(Env, modelFile, new[] { "a", "b" }, new[] { "c" });
+            var pipe = ML.Transforms.ScoreTensorFlowModel(modelFile, new[] { "c" }, new[] { "a", "b" });
 
-            var invalidDataWrongNames = ComponentCreation.CreateDataView(Env, xyData);
-            var invalidDataWrongTypes = ComponentCreation.CreateDataView(Env, stringData);
-            var invalidDataWrongVectorSize = ComponentCreation.CreateDataView(Env, sizeData);
+            var invalidDataWrongNames = ML.Data.LoadFromEnumerable(xyData);
+            var invalidDataWrongTypes = ML.Data.LoadFromEnumerable( stringData);
+            var invalidDataWrongVectorSize = ML.Data.LoadFromEnumerable( sizeData);
             TestEstimatorCore(pipe, dataView, invalidInput: invalidDataWrongNames);
             TestEstimatorCore(pipe, dataView, invalidInput: invalidDataWrongTypes);
 
@@ -94,12 +95,12 @@ namespace Microsoft.ML.Tests
             catch (InvalidOperationException) { }
         }
 
-        [ConditionalFact(typeof(Environment), nameof(Environment.Is64BitProcess))] // TensorFlow is 64-bit only
+        [TensorFlowFact]
         void TestOldSavingAndLoading()
         {
             var modelFile = "model_matmul/frozen_saved_model.pb";
 
-            var dataView = ComponentCreation.CreateDataView(Env,
+            var dataView = ML.Data.LoadFromEnumerable(
                 new List<TestData>(new TestData[] {
                     new TestData()
                     {
@@ -117,7 +118,7 @@ namespace Microsoft.ML.Tests
                         b = new[] { 10.0f, 8.0f, 6.0f, 6.0f }
                     }
                 }));
-            var est = new TensorFlowEstimator(Env, modelFile, new[] { "a", "b" }, new[] { "c" });
+            var est = ML.Transforms.ScoreTensorFlowModel(modelFile, new[] { "c" }, new[] { "a", "b" });
             var transformer = est.Fit(dataView);
             var result = transformer.Transform(dataView);
             var resultRoles = new RoleMappedData(result);
@@ -130,14 +131,15 @@ namespace Microsoft.ML.Tests
             }
         }
 
-        [ConditionalFact(typeof(Environment), nameof(Environment.Is64BitProcess))] // x86 output differs from Baseline
+        [TensorFlowFact]
         void TestCommandLine()
         {
-            var env = new MLContext();
+            // typeof helps to load the TensorFlowTransformer type.
+            Type type = typeof(TensorFlowTransformer);
             Assert.Equal(Maml.Main(new[] { @"showschema loader=Text{col=a:R4:0-3 col=b:R4:0-3} xf=TFTransform{inputs=a inputs=b outputs=c modellocation={model_matmul/frozen_saved_model.pb}}" }), (int)0);
         }
 
-        [ConditionalFact(typeof(Environment), nameof(Environment.Is64BitProcess))] // TensorFlow is 64-bit only
+        [TensorFlowFact]
         public void TestTensorFlowStatic()
         {
             var modelLocation = "cifar_model/frozen_model.pb";
@@ -148,23 +150,23 @@ namespace Microsoft.ML.Tests
             var dataFile = GetDataPath("images/images.tsv");
             var imageFolder = Path.GetDirectoryName(dataFile);
 
-            var data = TextLoaderStatic.CreateReader(mlContext, ctx => (
+            var data = TextLoaderStatic.CreateLoader(mlContext, ctx => (
                 imagePath: ctx.LoadText(0),
                 name: ctx.LoadText(1)))
-                .Read(dataFile);
+                .Load(dataFile);
 
             // Note that CamelCase column names are there to match the TF graph node names.
             var pipe = data.MakeNewEstimator()
                 .Append(row => (
                     row.name,
-                    Input: row.imagePath.LoadAsImage(imageFolder).Resize(imageHeight, imageWidth).ExtractPixels(interleaveArgb: true)))
+                    Input: row.imagePath.LoadAsImage(imageFolder).Resize(imageHeight, imageWidth).ExtractPixels(interleave: true)))
                 .Append(row => (row.name, Output: row.Input.ApplyTensorFlowGraph(modelLocation)));
 
             TestEstimatorCore(pipe.AsDynamic, data.AsDynamic);
 
             var result = pipe.Fit(data).Transform(data).AsDynamic;
             result.Schema.TryGetColumnIndex("Output", out int output);
-            using (var cursor = result.GetRowCursor(col => col == output))
+            using (var cursor = result.GetRowCursor(result.Schema["Output"]))
             {
                 var buffer = default(VBuffer<float>);
                 var getter = cursor.GetGetter<VBuffer<float>>(output);
@@ -179,7 +181,7 @@ namespace Microsoft.ML.Tests
             }
         }
 
-        [ConditionalFact(typeof(Environment), nameof(Environment.Is64BitProcess))]
+        [TensorFlowFact]
         public void TestTensorFlowStaticWithSchema()
         {
             const string modelLocation = "cifar_model/frozen_model.pb";
@@ -195,23 +197,23 @@ namespace Microsoft.ML.Tests
             var dataFile = GetDataPath("images/images.tsv");
             var imageFolder = Path.GetDirectoryName(dataFile);
 
-            var data = TextLoaderStatic.CreateReader(mlContext, ctx => (
+            var data = TextLoaderStatic.CreateLoader(mlContext, ctx => (
                 imagePath: ctx.LoadText(0),
                 name: ctx.LoadText(1)))
-                .Read(dataFile);
+                .Load(dataFile);
 
             // Note that CamelCase column names are there to match the TF graph node names.
             var pipe = data.MakeNewEstimator()
                 .Append(row => (
                     row.name,
-                    Input: row.imagePath.LoadAsImage(imageFolder).Resize(imageHeight, imageWidth).ExtractPixels(interleaveArgb: true)))
+                    Input: row.imagePath.LoadAsImage(imageFolder).Resize(imageHeight, imageWidth).ExtractPixels(interleave: true)))
                 .Append(row => (row.name, Output: row.Input.ApplyTensorFlowGraph(tensorFlowModel)));
 
             TestEstimatorCore(pipe.AsDynamic, data.AsDynamic);
 
             var result = pipe.Fit(data).Transform(data).AsDynamic;
             result.Schema.TryGetColumnIndex("Output", out int output);
-            using (var cursor = result.GetRowCursor(col => col == output))
+            using (var cursor = result.GetRowCursor(result.Schema["Output"]))
             {
                 var buffer = default(VBuffer<float>);
                 var getter = cursor.GetGetter<VBuffer<float>>(output);
@@ -231,7 +233,7 @@ namespace Microsoft.ML.Tests
             result.Schema.TryGetColumnIndex("a", out int ColA);
             result.Schema.TryGetColumnIndex("b", out int ColB);
             result.Schema.TryGetColumnIndex("c", out int ColC);
-            using (var cursor = result.GetRowCursor(x => true))
+            using (var cursor = result.GetRowCursorForAllColumns())
             {
                 VBuffer<float> avalue = default;
                 VBuffer<float> bvalue = default;

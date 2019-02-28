@@ -3,26 +3,27 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
 using Microsoft.ML.EntryPoints;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Model;
-using Microsoft.ML.TimeSeriesProcessing;
+using Microsoft.ML.Transforms.TimeSeries;
 
 [assembly: LoadableClass(PValueTransform.Summary, typeof(PValueTransform), typeof(PValueTransform.Arguments), typeof(SignatureDataTransform),
     PValueTransform.UserName, PValueTransform.LoaderSignature, PValueTransform.ShortName)]
 [assembly: LoadableClass(PValueTransform.Summary, typeof(PValueTransform), null, typeof(SignatureLoadDataTransform),
     PValueTransform.UserName, PValueTransform.LoaderSignature)]
 
-namespace Microsoft.ML.TimeSeriesProcessing
+namespace Microsoft.ML.Transforms.TimeSeries
 {
     /// <summary>
     /// PValueTransform is a sequential transform that computes the empirical p-value of the current value in the series based on the other values in
     /// the sliding window.
     /// </summary>
-    public sealed class PValueTransform : SequentialTransformBase<Single, Single, PValueTransform.State>
+    internal sealed class PValueTransform : SequentialTransformBase<Single, Single, PValueTransform.State>
     {
         internal const string Summary = "This P-Value transform calculates the p-value of the current input in the sequence with regard to the values in the sliding window.";
         public const string LoaderSignature = "PValueTransform";
@@ -71,7 +72,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
         private readonly bool _isPositiveSide;
 
         public PValueTransform(IHostEnvironment env, Arguments args, IDataView input)
-            : base(args.WindowSize, args.InitialWindowSize, args.Source, args.Name, LoaderSignature, env, input)
+            : base(args.WindowSize, args.InitialWindowSize, args.Name, args.Source, LoaderSignature, env, input)
         {
             Host.CheckUserArg(args.WindowSize >= 1, nameof(args.WindowSize), "The size of the sliding window should be at least 1.");
             _seed = args.Seed;
@@ -90,7 +91,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
             Host.CheckDecode(WindowSize >= 1);
         }
 
-        public override void Save(ModelSaveContext ctx)
+        private protected override void SaveModel(ModelSaveContext ctx)
         {
             Host.CheckValue(ctx, nameof(ctx));
             Host.Assert(WindowSize >= 1);
@@ -102,7 +103,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
             // int: _percentile
             // byte: _isPositiveSide
 
-            base.Save(ctx);
+            base.SaveModel(ctx);
             ctx.Writer.Write(_seed);
             ctx.Writer.WriteBoolByte(_isPositiveSide);
         }

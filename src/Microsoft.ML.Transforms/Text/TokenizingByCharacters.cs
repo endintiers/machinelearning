@@ -2,23 +2,21 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-#pragma warning disable 420 // volatile with Interlocked.CompareExchange
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
-using Microsoft.ML.Core.Data;
 using Microsoft.ML.Data;
 using Microsoft.ML.EntryPoints;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Model;
 using Microsoft.ML.Transforms.Text;
 
-[assembly: LoadableClass(TokenizingByCharactersTransformer.Summary, typeof(IDataTransform), typeof(TokenizingByCharactersTransformer), typeof(TokenizingByCharactersTransformer.Arguments), typeof(SignatureDataTransform),
+[assembly: LoadableClass(TokenizingByCharactersTransformer.Summary, typeof(IDataTransform), typeof(TokenizingByCharactersTransformer), typeof(TokenizingByCharactersTransformer.Options), typeof(SignatureDataTransform),
     TokenizingByCharactersTransformer.UserName, "CharTokenize", TokenizingByCharactersTransformer.LoaderSignature)]
 
 [assembly: LoadableClass(typeof(IDataTransform), typeof(TokenizingByCharactersTransformer), null, typeof(SignatureLoadDataTransform),
@@ -37,9 +35,9 @@ namespace Microsoft.ML.Transforms.Text
     /// </summary>
     public sealed class TokenizingByCharactersTransformer : OneToOneTransformerBase
     {
-        public sealed class Column : OneToOneColumn
+        internal sealed class Column : OneToOneColumn
         {
-            public static Column Parse(string str)
+            internal static Column Parse(string str)
             {
                 var res = new Column();
                 if (res.TryParse(str))
@@ -47,17 +45,17 @@ namespace Microsoft.ML.Transforms.Text
                 return null;
             }
 
-            public bool TryUnparse(StringBuilder sb)
+            internal bool TryUnparse(StringBuilder sb)
             {
                 Contracts.AssertValue(sb);
                 return TryUnparseCore(sb);
             }
         }
 
-        public sealed class Arguments : TransformInputBase
+        internal sealed class Options : TransformInputBase
         {
-            [Argument(ArgumentType.Multiple | ArgumentType.Required, HelpText = "New column definition(s) (optional form: name:src)", ShortName = "col", SortOrder = 1)]
-            public Column[] Column;
+            [Argument(ArgumentType.Multiple | ArgumentType.Required, HelpText = "New column definition(s) (optional form: name:src)", Name = "Column", ShortName = "col", SortOrder = 1)]
+            public Column[] Columns;
 
             [Argument(ArgumentType.Multiple, HelpText = "Whether to mark the beginning/end of each row/slot with start of text character (0x02)/end of text character (0x03)",
                 ShortName = "mark", SortOrder = 2)]
@@ -107,15 +105,19 @@ namespace Microsoft.ML.Transforms.Text
         /// <param name="env">The environment.</param>
         /// <param name="useMarkerCharacters">Whether to use marker characters to separate words.</param>
         /// <param name="columns">Pairs of columns to run the tokenization on.</param>
-        public TokenizingByCharactersTransformer(IHostEnvironment env, bool useMarkerCharacters = TokenizingByCharactersEstimator.Defaults.UseMarkerCharacters, params (string input, string output)[] columns) :
+        internal TokenizingByCharactersTransformer(IHostEnvironment env, bool useMarkerCharacters = TokenizingByCharactersEstimator.Defaults.UseMarkerCharacters,
+            params (string outputColumnName, string inputColumnName)[] columns) :
             base(Contracts.CheckRef(env, nameof(env)).Register(RegistrationName), columns)
         {
             _useMarkerChars = useMarkerCharacters;
         }
 
-        public IReadOnlyCollection<(string input, string output)> Columns => ColumnPairs.AsReadOnly();
+        /// <summary>
+        /// The names of the output and input column pairs on which the transformation is applied.
+        /// </summary>
+        public IReadOnlyCollection<(string outputColumnName, string inputColumnName)> Columns => ColumnPairs.AsReadOnly();
 
-        protected override void CheckInputColumn(Schema inputSchema, int col, int srcCol)
+        private protected override void CheckInputColumn(DataViewSchema inputSchema, int col, int srcCol)
         {
             var type = inputSchema[srcCol].Type;
             if (!TokenizingByCharactersEstimator.IsColumnTypeValid(type))
@@ -136,7 +138,7 @@ namespace Microsoft.ML.Transforms.Text
         private static IDataTransform Create(IHostEnvironment env, ModelLoadContext ctx, IDataView input)
             => Create(env, ctx).MakeDataTransform(input);
 
-        public override void Save(ModelSaveContext ctx)
+        private protected override void SaveModel(ModelSaveContext ctx)
         {
             Host.CheckValue(ctx, nameof(ctx));
             ctx.CheckAtModel();
@@ -161,69 +163,69 @@ namespace Microsoft.ML.Transforms.Text
         }
 
         // Factory method for SignatureDataTransform.
-        internal static IDataTransform Create(IHostEnvironment env, Arguments args, IDataView input)
+        internal static IDataTransform Create(IHostEnvironment env, Options options, IDataView input)
         {
             Contracts.CheckValue(env, nameof(env));
-            env.CheckValue(args, nameof(args));
+            env.CheckValue(options, nameof(options));
             env.CheckValue(input, nameof(input));
 
-            env.CheckValue(args.Column, nameof(args.Column));
-            var cols = new (string input, string output)[args.Column.Length];
+            env.CheckValue(options.Columns, nameof(options.Columns));
+            var cols = new (string outputColumnName, string inputColumnName)[options.Columns.Length];
             for (int i = 0; i < cols.Length; i++)
             {
-                var item = args.Column[i];
-                cols[i] = (item.Source ?? item.Name, item.Name);
+                var item = options.Columns[i];
+                cols[i] = (item.Name, item.Source ?? item.Name);
             }
-            return new TokenizingByCharactersTransformer(env, args.UseMarkerChars, cols).MakeDataTransform(input);
+            return new TokenizingByCharactersTransformer(env, options.UseMarkerChars, cols).MakeDataTransform(input);
         }
 
         // Factory method for SignatureLoadRowMapper.
-        private static IRowMapper Create(IHostEnvironment env, ModelLoadContext ctx, Schema inputSchema)
+        private static IRowMapper Create(IHostEnvironment env, ModelLoadContext ctx, DataViewSchema inputSchema)
             => Create(env, ctx).MakeRowMapper(inputSchema);
 
-        private protected override IRowMapper MakeRowMapper(Schema schema) => new Mapper(this, schema);
+        private protected override IRowMapper MakeRowMapper(DataViewSchema schema) => new Mapper(this, schema);
 
         private sealed class Mapper : OneToOneMapperBase
         {
-            private readonly ColumnType _type;
+            private readonly DataViewType _type;
             private readonly TokenizingByCharactersTransformer _parent;
             private readonly bool[] _isSourceVector;
             // Constructed and cached the first time it is needed.
             private volatile string _keyValuesStr;
             private volatile int[] _keyValuesBoundaries;
 
-            public Mapper(TokenizingByCharactersTransformer parent, Schema inputSchema)
+            public Mapper(TokenizingByCharactersTransformer parent, DataViewSchema inputSchema)
              : base(parent.Host.Register(nameof(Mapper)), parent, inputSchema)
             {
                 _parent = parent;
-                var keyType = new KeyType(DataKind.U2, 1, CharsCount);
+                var keyType = new KeyType(typeof(ushort), CharsCount);
                 _type = new VectorType(keyType);
                 _isSourceVector = new bool[_parent.ColumnPairs.Length];
                 for (int i = 0; i < _isSourceVector.Length; i++)
-                    _isSourceVector[i] = inputSchema[_parent.ColumnPairs[i].input].Type is VectorType;
+                    _isSourceVector[i] = inputSchema[_parent.ColumnPairs[i].inputColumnName].Type is VectorType;
             }
 
-            protected override Schema.DetachedColumn[] GetOutputColumnsCore()
+            protected override DataViewSchema.DetachedColumn[] GetOutputColumnsCore()
             {
-                var result = new Schema.DetachedColumn[_parent.ColumnPairs.Length];
+                var result = new DataViewSchema.DetachedColumn[_parent.ColumnPairs.Length];
                 for (int i = 0; i < _parent.ColumnPairs.Length; i++)
                 {
-                    var builder = new MetadataBuilder();
+                    var builder = new DataViewSchema.Annotations.Builder();
                     AddMetadata(i, builder);
-                    result[i] = new Schema.DetachedColumn(_parent.ColumnPairs[i].output, _type, builder.GetMetadata());
+                    result[i] = new DataViewSchema.DetachedColumn(_parent.ColumnPairs[i].outputColumnName, _type, builder.ToAnnotations());
                 }
                 return result;
             }
 
-            private void AddMetadata(int iinfo, MetadataBuilder builder)
+            private void AddMetadata(int iinfo, DataViewSchema.Annotations.Builder builder)
             {
-                builder.Add(InputSchema[_parent.ColumnPairs[iinfo].input].Metadata, name => name == MetadataUtils.Kinds.SlotNames);
+                builder.Add(InputSchema[_parent.ColumnPairs[iinfo].inputColumnName].Annotations, name => name == AnnotationUtils.Kinds.SlotNames);
                 ValueGetter<VBuffer<ReadOnlyMemory<char>>> getter =
                        (ref VBuffer<ReadOnlyMemory<char>> dst) =>
                        {
                            GetKeyValues(iinfo, ref dst);
                        };
-                builder.AddKeyValues(CharsCount, TextType.Instance, getter);
+                builder.AddKeyValues(CharsCount, TextDataViewType.Instance, getter);
             }
 
             /// <summary>
@@ -396,18 +398,18 @@ namespace Microsoft.ML.Transforms.Text
                 }
             }
 
-            protected override Delegate MakeGetter(Row input, int iinfo, Func<int, bool> activeOutput, out Action disposer)
+            protected override Delegate MakeGetter(DataViewRow input, int iinfo, Func<int, bool> activeOutput, out Action disposer)
             {
                 Host.AssertValue(input);
                 Host.Assert(0 <= iinfo && iinfo < _parent.ColumnPairs.Length);
                 disposer = null;
 
-                if (!(input.Schema[_parent.ColumnPairs[iinfo].input].Type is VectorType))
+                if (!(input.Schema[_parent.ColumnPairs[iinfo].inputColumnName].Type is VectorType))
                     return MakeGetterOne(input, iinfo);
                 return MakeGetterVec(input, iinfo);
             }
 
-            private ValueGetter<VBuffer<ushort>> MakeGetterOne(Row input, int iinfo)
+            private ValueGetter<VBuffer<ushort>> MakeGetterOne(DataViewRow input, int iinfo)
             {
                 Host.AssertValue(input);
                 var getSrc = input.GetGetter<ReadOnlyMemory<char>>(ColMapNewToOld[iinfo]);
@@ -436,7 +438,7 @@ namespace Microsoft.ML.Transforms.Text
                     };
             }
 
-            private ValueGetter<VBuffer<ushort>> MakeGetterVec(Row input, int iinfo)
+            private ValueGetter<VBuffer<ushort>> MakeGetterVec(DataViewRow input, int iinfo)
             {
                 Host.AssertValue(input);
 
@@ -554,19 +556,20 @@ namespace Microsoft.ML.Transforms.Text
         {
             public const bool UseMarkerCharacters = true;
         }
-        public static bool IsColumnTypeValid(ColumnType type) => type.GetItemType() is TextType;
+        internal static bool IsColumnTypeValid(DataViewType type) => type.GetItemType() is TextDataViewType;
 
         internal const string ExpectedColumnType = "Text";
 
         /// <summary>
-        /// Tokenize incoming text in <paramref name="inputColumn"/> and output the tokens as <paramref name="outputColumn"/>.
+        /// Tokenize incoming text in <paramref name="inputColumnName"/> and output the tokens as <paramref name="outputColumnName"/>.
         /// </summary>
         /// <param name="env">The environment.</param>
-        /// <param name="inputColumn">The column containing text to tokenize.</param>
-        /// <param name="outputColumn">The column containing output tokens. Null means <paramref name="inputColumn"/> is replaced.</param>
+        /// <param name="outputColumnName">Name of the column resulting from the transformation of <paramref name="inputColumnName"/>.</param>
+        /// <param name="inputColumnName">Name of the column to transform. If set to <see langword="null"/>, the value of the <paramref name="outputColumnName"/> will be used as source.</param>
         /// <param name="useMarkerCharacters">Whether to use marker characters to separate words.</param>
-        public TokenizingByCharactersEstimator(IHostEnvironment env, string inputColumn, string outputColumn = null, bool useMarkerCharacters = Defaults.UseMarkerCharacters)
-            : this(env, useMarkerCharacters, new[] { (inputColumn, outputColumn ?? inputColumn) })
+        internal TokenizingByCharactersEstimator(IHostEnvironment env, string outputColumnName, string inputColumnName = null,
+            bool useMarkerCharacters = Defaults.UseMarkerCharacters)
+            : this(env, useMarkerCharacters, new[] { (outputColumnName, inputColumnName ?? outputColumnName) })
         {
         }
 
@@ -577,26 +580,31 @@ namespace Microsoft.ML.Transforms.Text
         /// <param name="useMarkerCharacters">Whether to use marker characters to separate words.</param>
         /// <param name="columns">Pairs of columns to run the tokenization on.</param>
 
-        public TokenizingByCharactersEstimator(IHostEnvironment env, bool useMarkerCharacters = Defaults.UseMarkerCharacters, params (string input, string output)[] columns)
+        internal TokenizingByCharactersEstimator(IHostEnvironment env, bool useMarkerCharacters = Defaults.UseMarkerCharacters,
+            params (string outputColumnName, string inputColumnName)[] columns)
             : base(Contracts.CheckRef(env, nameof(env)).Register(nameof(TokenizingByCharactersEstimator)), new TokenizingByCharactersTransformer(env, useMarkerCharacters, columns))
         {
         }
 
+        /// <summary>
+        /// Returns the <see cref="SchemaShape"/> of the schema which will be produced by the transformer.
+        /// Used for schema propagation and verification in a pipeline.
+        /// </summary>
         public override SchemaShape GetOutputSchema(SchemaShape inputSchema)
         {
             Host.CheckValue(inputSchema, nameof(inputSchema));
             var result = inputSchema.ToDictionary(x => x.Name);
             foreach (var colInfo in Transformer.Columns)
             {
-                if (!inputSchema.TryFindColumn(colInfo.input, out var col))
-                    throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", colInfo.input);
+                if (!inputSchema.TryFindColumn(colInfo.inputColumnName, out var col))
+                    throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", colInfo.inputColumnName);
                 if (!IsColumnTypeValid(col.ItemType))
-                    throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", colInfo.input, ExpectedColumnType, col.ItemType.ToString());
+                    throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", colInfo.inputColumnName, ExpectedColumnType, col.ItemType.ToString());
                 var metadata = new List<SchemaShape.Column>();
-                if (col.Metadata.TryFindColumn(MetadataUtils.Kinds.SlotNames, out var slotMeta))
-                    metadata.Add(new SchemaShape.Column(MetadataUtils.Kinds.SlotNames, SchemaShape.Column.VectorKind.Vector, slotMeta.ItemType, false));
-                metadata.Add(new SchemaShape.Column(MetadataUtils.Kinds.KeyValues, SchemaShape.Column.VectorKind.Vector, TextType.Instance, false));
-                result[colInfo.output] = new SchemaShape.Column(colInfo.output, SchemaShape.Column.VectorKind.VariableVector, NumberType.U2, true, new SchemaShape(metadata.ToArray()));
+                if (col.Annotations.TryFindColumn(AnnotationUtils.Kinds.SlotNames, out var slotMeta))
+                    metadata.Add(new SchemaShape.Column(AnnotationUtils.Kinds.SlotNames, SchemaShape.Column.VectorKind.Vector, slotMeta.ItemType, false));
+                metadata.Add(new SchemaShape.Column(AnnotationUtils.Kinds.KeyValues, SchemaShape.Column.VectorKind.Vector, TextDataViewType.Instance, false));
+                result[colInfo.outputColumnName] = new SchemaShape.Column(colInfo.outputColumnName, SchemaShape.Column.VectorKind.VariableVector, NumberDataViewType.UInt16, true, new SchemaShape(metadata.ToArray()));
             }
 
             return new SchemaShape(result.Values);

@@ -7,8 +7,9 @@ using Microsoft.ML.Data;
 using Microsoft.ML.LightGBM;
 using Microsoft.ML.RunTests;
 using Microsoft.ML.TestFramework;
+using Microsoft.ML.Trainers;
 using Microsoft.ML.Trainers.FastTree;
-using Microsoft.ML.Transforms.Conversions;
+using Microsoft.ML.Transforms;
 using System.IO;
 
 namespace Microsoft.ML.Benchmarks
@@ -42,7 +43,7 @@ namespace Microsoft.ML.Benchmarks
                 " xf=HashTransform{col=GroupId} xf=NAHandleTransform{col=Features}" +
                 " tr=FastTreeRanking{}";
 
-            var environment = EnvironmentFactory.CreateRankingEnvironment<RankerEvaluator, TextLoader, HashingTransformer, FastTreeRankingTrainer>();
+            var environment = EnvironmentFactory.CreateRankingEnvironment<RankingEvaluator, TextLoader, HashingTransformer, FastTreeRankingTrainer, FastTreeRankingModelParameters>();
             cmd.ExecuteMamlCommand(environment);
         }
 
@@ -57,7 +58,7 @@ namespace Microsoft.ML.Benchmarks
                 " xf=NAHandleTransform{col=Features}" +
                 " tr=LightGBMRanking{}";
 
-            var environment = EnvironmentFactory.CreateRankingEnvironment<RankerEvaluator, TextLoader, HashingTransformer, LightGbmMulticlassTrainer>();
+            var environment = EnvironmentFactory.CreateRankingEnvironment<RankingEvaluator, TextLoader, HashingTransformer, LightGbmMulticlassTrainer, OvaModelParameters>();
             cmd.ExecuteMamlCommand(environment);
         }
     }
@@ -85,7 +86,7 @@ namespace Microsoft.ML.Benchmarks
             if (!File.Exists(_mslrWeb10k_Train))
                 throw new FileNotFoundException(string.Format(Errors.DatasetNotFound, _mslrWeb10k_Train));
 
-            _modelPath_MSLR = Path.Combine(Directory.GetCurrentDirectory(), @"FastTreeRankingModel.zip");
+            _modelPath_MSLR = Path.Combine(Path.GetDirectoryName(typeof(RankingTest).Assembly.Location), "FastTreeRankingModel.zip");
 
             string cmd = @"TrainTest test=" + _mslrWeb10k_Validate +
                 " eval=RankingEvaluator{t=10}" +
@@ -96,7 +97,7 @@ namespace Microsoft.ML.Benchmarks
                 " tr=FastTreeRanking{}" +
                 " out={" + _modelPath_MSLR + "}";
 
-            var environment = EnvironmentFactory.CreateRankingEnvironment<RankerEvaluator, TextLoader, HashingTransformer, FastTreeRankingTrainer>();
+            var environment = EnvironmentFactory.CreateRankingEnvironment<RankingEvaluator, TextLoader, HashingTransformer, FastTreeRankingTrainer, FastTreeRankingModelParameters>();
             cmd.ExecuteMamlCommand(environment);
         }
 
@@ -106,7 +107,7 @@ namespace Microsoft.ML.Benchmarks
             // This benchmark is profiling bulk scoring speed and not training speed. 
             string cmd = @"Test data=" + _mslrWeb10k_Test + " in=" + _modelPath_MSLR;
 
-            var environment = EnvironmentFactory.CreateRankingEnvironment<RankerEvaluator, TextLoader, HashingTransformer, FastTreeRankingTrainer>();
+            var environment = EnvironmentFactory.CreateRankingEnvironment<RankingEvaluator, TextLoader, HashingTransformer, FastTreeRankingTrainer, FastTreeRankingModelParameters>();
             cmd.ExecuteMamlCommand(environment);
         }
     }

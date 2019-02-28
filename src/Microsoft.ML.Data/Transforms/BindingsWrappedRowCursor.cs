@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using Microsoft.Data.DataView;
+
 namespace Microsoft.ML.Data
 {
     /// <summary>
@@ -15,7 +17,7 @@ namespace Microsoft.ML.Data
     {
         private readonly ColumnBindingsBase _bindings;
 
-        public override Schema Schema => _bindings.AsSchema;
+        public override DataViewSchema Schema => _bindings.AsSchema;
 
         /// <summary>
         /// Creates a wrapped version of the cursor
@@ -23,7 +25,7 @@ namespace Microsoft.ML.Data
         /// <param name="provider">Channel provider</param>
         /// <param name="input">The input cursor</param>
         /// <param name="bindings">The bindings object, </param>
-        public BindingsWrappedRowCursor(IChannelProvider provider, RowCursor input, ColumnBindingsBase bindings)
+        public BindingsWrappedRowCursor(IChannelProvider provider, DataViewRowCursor input, ColumnBindingsBase bindings)
             : base(provider, input)
         {
             Ch.CheckValue(input, nameof(input));

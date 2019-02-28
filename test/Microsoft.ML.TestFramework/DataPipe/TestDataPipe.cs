@@ -5,20 +5,18 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Microsoft.Data.DataView;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Transforms;
-using Microsoft.ML.Transforms.Conversions;
-using Microsoft.ML.Transforms.Text;
 using Xunit;
-using Float = System.Single;
 
 namespace Microsoft.ML.RunTests
 {
     public sealed partial class TestDataPipe : TestDataPipeBase
     {
-        private static Float[] dataFloat = new Float[] { -0.0f, 0,  1, -1,  2, -2, Single.NaN, Single.MinValue,
+        private static float[] dataFloat = new float[] { -0.0f, 0,  1, -1,  2, -2, Single.NaN, Single.MinValue,
                 Single.MaxValue, Single.Epsilon, Single.NegativeInfinity, Single.PositiveInfinity };
         private static uint[] resultsFloat = new uint[] { 21, 21, 16, 16, 31, 17, 0, 23, 24, 15, 10, 7 };
 
@@ -174,7 +172,7 @@ namespace Microsoft.ML.RunTests
             string pathData = GetDataPath("adult.tiny.with-schema.txt");
             TestCore(pathData, false,
                 new[] {
-                    "loader=Text{header+ col=Label:0 col=Age:9 col=Gender:TX:7 col=Mar:TX:3 col=Race:TX:6 col=Num:10-14 col=Txt:TX:~}",
+                    "loader=Text{sparse+ header+ col=Label:0 col=Age:9 col=Gender:TX:7 col=Mar:TX:3 col=Race:TX:6 col=Num:10-14 col=Txt:TX:~}",
                     "xf=Cat{col=Race2:Key:Race data={" + pathTerms + "} termCol=Whatever}",
                     "xf=Cat{col=Gender2:Gender terms=Male,Female}",
                     "xf=Cat{col=Mar2:Mar col={name=Race3 src=Race terms=Other,White,Black,Asian-Pac-Islander,Amer-Indian-Inuit}}",
@@ -197,7 +195,7 @@ namespace Microsoft.ML.RunTests
             string pathData = GetDataPath("adult.tiny.with-schema.txt");
             TestCore(pathData, true,
                 new[] {
-                    "loader=Text{header+ col=Mar:TX:3 col=Race:TX:6 col=Gen:TX:7~8}",
+                    "loader=Text{sparse+ header+ col=Mar:TX:3 col=Race:TX:6 col=Gen:TX:7~8}",
                     "xf=Concat{col=Comb:Race,Gen,Race}",
                     "xf=Cat{kind=Key col=MarKey:Mar}",
                     "xf=Cat{kind=Key col={name=CombKey src=Comb} data={" + pathTerms + "}}",
@@ -211,21 +209,21 @@ namespace Microsoft.ML.RunTests
                 {
                     // Verify that the Vec columns match the corresponding VecXX columns. This verifies that conversion
                     // happened correctly in KeyToVector.
-                    using (var c = pipe.GetRowCursor(col => true))
+                    using (var c = pipe.GetRowCursorForAllColumns())
                     {
                         var cols = new[] { "MarVec", "MarVecU8", "CombBagVec", "CombBagVecU1", "CombIndVec", "CombIndVecU1" };
-                        var getters = new ValueGetter<VBuffer<Float>>[cols.Length];
+                        var getters = new ValueGetter<VBuffer<float>>[cols.Length];
                         for (int i = 0; i < cols.Length; i++)
                         {
                             int col;
                             if (!Check(c.Schema.TryGetColumnIndex(cols[i], out col), "{0} not found!", cols[i]))
                                 return;
-                            getters[i] = c.GetGetter<VBuffer<Float>>(col);
+                            getters[i] = c.GetGetter<VBuffer<float>>(col);
                         }
 
-                        Func<Float, Float, bool> fn = (x, y) => FloatUtils.GetBits(x) == FloatUtils.GetBits(y);
-                        var v1 = default(VBuffer<Float>);
-                        var v2 = default(VBuffer<Float>);
+                        Func<float, float, bool> fn = (x, y) => FloatUtils.GetBits(x) == FloatUtils.GetBits(y);
+                        var v1 = default(VBuffer<float>);
+                        var v2 = default(VBuffer<float>);
                         while (c.MoveNext())
                         {
                             for (int i = 0; i < cols.Length; i += 2)
@@ -253,7 +251,7 @@ namespace Microsoft.ML.RunTests
 
             TestCore(pathData, true,
                 new[] {
-                    "loader=Text{col=Known:I4:0-2 col=Single:I4:3 col=Text:TX:4 col=Unknown:I4:~** sep=comma}",
+                    "loader=Text{sparse+ col=Known:I4:0-2 col=Single:I4:3 col=Text:TX:4 col=Unknown:I4:~** sep=comma}",
                     // Tokenize Text, then run it through Categorical to get key values, then through KeyToVector.
                     // Then convert everything to R8 and concatenate it all.
                     "xf=WordToken{col=Tokens:Text}",
@@ -273,7 +271,7 @@ namespace Microsoft.ML.RunTests
         {
             TestCore(null, true,
                 new[] {
-                    "loader=Text{col=Label:Num:0 col=Text:TX:1-9}",
+                    "loader=Text{quote+ sparse+ col=Label:Num:0 col=Text:TX:1-9}",
                     "xf=Cat{max=5 col={name=Key src=Text kind=key}}",
                     "xf=Ngram{ngram=3 skips=1 col={name=Ngrams1 src=Key max=10}}",
                     "xf=Ngram{skips=2 col={name=Ngrams2 src=Key ngram=4 max=10:20:30} col={name=Ngrams3 src=Key ngram=3 max=10:15}}",
@@ -300,7 +298,7 @@ namespace Microsoft.ML.RunTests
 
             TestCore(pathData, true,
                 new[] {
-                    "loader=Text{col=Text:TX:0-20}",
+                    "loader=Text{quote+ sparse+ col=Text:TX:0-20}",
                     "xf=Cat{col={name=Key src=Text kind=key}}",
                     "xf=Ngram{ngram=3 skips=2 col={name=Ngrams src=Key max=100}}",
                 });
@@ -411,7 +409,7 @@ namespace Microsoft.ML.RunTests
         {
             TestCore(null, false,
                 new[] {
-                    "loader=Text{col=Text:TX:1-9 col=OneText:TX:1 col=Label:0}",
+                    "loader=Text{quote+ sparse+ col=Text:TX:1-9 col=OneText:TX:1 col=Label:0}",
                     "xf=Cat{max=5 col={name=Bag src=Text kind=bag} col=One:ind:OneText}",
                     "xf=Cat{max=7 col=Hot:Text}",
                     "xf=Cat{max=8 col=Key:kEY:Text col=KeyOne:KeY:OneText}",
@@ -434,7 +432,7 @@ namespace Microsoft.ML.RunTests
 
             TestCore(pathData, true,
                 new[] {
-                    "loader=Text{col=Text:TX:0-2 col=CatU1:U1[0-2]:0-2 col=CatU2:U2[2-4]:0-2 col=CatU8:U8[0-*]:0-2 col=OneU1:U1[0-*]:0 col=OneU2:U2[0-*]:1 col=OneU4:U4[0-*]:1 col=OneU8:U8[0-*]:2 col=Single:TX:0 col=VarU1:U1[0-*]:3-** col=VarU2:U2[0-*]:3-** col=VarU4:U4[0-*]:3-** col=VarU8:U8[0-*]:3-** col=Variable:TX:3-**}",
+                    "loader=Text{sparse+ col=Text:TX:0-2 col=CatU1:U1[0-2]:0-2 col=CatU2:U2[0-4]:0-2 col=CatU8:U8[]:0-2 col=OneU1:U1[]:0 col=OneU2:U2[]:1 col=OneU4:U4[]:1 col=OneU8:U8[]:2 col=Single:TX:0 col=VarU1:U1[]:3-** col=VarU2:U2[]:3-** col=VarU4:U4[]:3-** col=VarU8:U8[]:3-** col=Variable:TX:3-**}",
                     "xf=Cat{col=Cat:Key:Text col=VarCat:Key:Variable}",
                     "xf=Hash{bits=6 ordered+ col={name=Hash0 src=Text bits=4} col={name=Hash1 src=Text ord- bits=4} col={name=Hash2 src=Cat} col=Hash3:CatU8}",
                     "xf=Hash{col={name=Hash4 bits=5 src=CatU1} col={name=Hash5 src=CatU2 bits=6 ord+} col={name=Hash6 src=CatU2 bits=6} col={name=Hash7 src=CatU8 bits=6} col={name=Hash8 src=Cat bits=6}}",
@@ -454,7 +452,7 @@ namespace Microsoft.ML.RunTests
         {
             TestCore(null, false,
                 new[] {
-                    "loader=Text{col=One:TX:1 col=Num:R4:2-* col=Key:U1[1-10]:1}",
+                    "loader=Text{quote+ sparse+ col=One:TX:1 col=Num:R4:2-* col=Key:U1[0-10]:1}",
                     // Create a lot of unused slots.
                     "xf=CatHash{col=OneInd:One bits=10}",
                     // One is for the non-vector case and OneInd is reduced to a small size.
@@ -514,7 +512,7 @@ namespace Microsoft.ML.RunTests
             string pathData = GetDataPath("lm.sample.txt");
             TestCore(pathData, true,
                 new[] {
-                    "loader=Text{header+ col=Label:TX:0 col=Attrs:TX:1-2 col=TextFeatures:TX:3-4 rows=100}",
+                    "loader=Text{sparse+ header+ col=Label:TX:0 col=Attrs:TX:1-2 col=TextFeatures:TX:3-4 rows=100}",
                     "xf=WordToken{col={name=Tokens src=TextFeatures}}",
                     "xf=Cat{max=10 col={name=Cat src=Tokens kind=key}}",
                     "xf=Hash{col={name=Hash src=Tokens bits=10} col={name=HashBig src=Tokens bits=31}}",
@@ -529,7 +527,7 @@ namespace Microsoft.ML.RunTests
 
             TestCore(null, true,
                 new[] {
-                    "loader=Text{col=CatU8:U8[0-100]:1-9 col=CatU2:U2[0-*]:3-5}",
+                    "loader=Text{col=CatU8:U8[0-100]:1-9 col=CatU2:U2[]:3-5}",
                     "xf=NgramHash{bits=5 col=NgramHash:CatU8 col=NgramHash2:CatU2}",
                     "xf=SelectColumns{keepcol=NgramHash keepcol=NgramHash2 hidden=-}"
                 },
@@ -558,7 +556,7 @@ namespace Microsoft.ML.RunTests
             string pathData = GetDataPath(@"lm.sample.txt");
             TestCore(pathData, true,
                 new[] {
-                    "loader=Text{header+ col=One:TX:4 col=Two:TX:3 rows=101}",
+                    "loader=Text{sparse+ header+ col=One:TX:4 col=Two:TX:3 rows=101}",
                     "xf=WordHashBag{bits=5",
                     "  col=F11:5:One col={name=F12 src=One ngram=4} col={name=F13 src=Two ngram=3 skips=2 bits=15}",
                     "  col=F21:Two,One col={name=F22 src=Two src=One ngram=4} col={name=F23 src=Two src=One bits=15 ngram=3 skips=2}",
@@ -571,7 +569,7 @@ namespace Microsoft.ML.RunTests
                     // Column F13 contains the ngram counts of column Two, and column F23 contains the ngram counts
                     // of columns Two and One. Therefore, make sure that the ngrams in column Two were hashed to the same 
                     // slots in F13 as they were in column F23. We do this by checking that for every slot, F23 is >= F13.
-                    using (var c = pipe.GetRowCursor(col => true))
+                    using (var c = pipe.GetRowCursorForAllColumns())
                     {
                         int col1;
                         bool tmp1 = c.Schema.TryGetColumnIndex("F13", out col1);
@@ -582,10 +580,10 @@ namespace Microsoft.ML.RunTests
                         if (!Check(tmp2, "Column F23 not found!"))
                             return;
 
-                        var get1 = c.GetGetter<VBuffer<Float>>(col1);
-                        var get2 = c.GetGetter<VBuffer<Float>>(col2);
-                        VBuffer<Float> bag1 = default(VBuffer<Float>);
-                        VBuffer<Float> bag2 = default(VBuffer<Float>);
+                        var get1 = c.GetGetter<VBuffer<float>>(col1);
+                        var get2 = c.GetGetter<VBuffer<float>>(col2);
+                        VBuffer<float> bag1 = default;
+                        VBuffer<float> bag2 = default;
                         while (c.MoveNext())
                         {
                             get1(ref bag1);
@@ -608,14 +606,14 @@ namespace Microsoft.ML.RunTests
             string pathData = GetDataPath(@"lm.sample.txt");
             TestCore(pathData, true,
                 new[] {
-                    "loader=Text{header+ col=One:TX:4 col=Two:TX:3 rows=101}",
+                    "loader=Text{sparse+ header+ col=One:TX:4 col=Two:TX:3 rows=101}",
                     "xf=WordHashBag{bits=5 ord=- col=F1:One col=F2:One,One}",
                     "xf=SelectColumns{keepcol=F1 keepcol=F2}",
                 },
                 (pipe) =>
                 {
                     // Verify that F2 = 2 * F1
-                    using (var c = pipe.GetRowCursor(col => true))
+                    using (var c = pipe.GetRowCursorForAllColumns())
                     {
                         int col1;
                         bool tmp1 = c.Schema.TryGetColumnIndex("F1", out col1);
@@ -626,10 +624,10 @@ namespace Microsoft.ML.RunTests
                         if (!Check(tmp2, "Column F2 not found!"))
                             return;
 
-                        var get1 = c.GetGetter<VBuffer<Float>>(col1);
-                        var get2 = c.GetGetter<VBuffer<Float>>(col2);
-                        VBuffer<Float> bag1 = default(VBuffer<Float>);
-                        VBuffer<Float> bag2 = default(VBuffer<Float>);
+                        var get1 = c.GetGetter<VBuffer<float>>(col1);
+                        var get2 = c.GetGetter<VBuffer<float>>(col2);
+                        VBuffer<float> bag1 = default;
+                        VBuffer<float> bag2 = default;
                         while (c.MoveNext())
                         {
                             get1(ref bag1);
@@ -660,7 +658,7 @@ namespace Microsoft.ML.RunTests
                     "an angry ant\t3\t3\t\tbob bowled badly",
                     "\t10\t\t\t\"\""
                 });
-            const string loader = "loader=Text{col=A:TX:0 col=K:U4[3-10]:1-2 col=KS:U4[3-10]:2 col=B:TX:4 col=E:TX:3}";
+            const string loader = "loader=Text{quote+ sparse+ col=A:TX:0 col=K:U4[11]:1-2 col=KS:U4[11]:2 col=B:TX:4 col=E:TX:3}";
             TestCore(pathData, true,
                 new[] {
                     loader,
@@ -705,7 +703,7 @@ namespace Microsoft.ML.RunTests
                 new[] {
                     loader,
                     "xf=WordToken{col=AT:A}",
-                    "xf=Hash{col=AH:AT}",
+                    "xf=Hash{col=AH:AT bits=30}",
                     "xf=NgramHash{col=AH ngram=3 hashbits=4 all- ih=3}",
                     "xf=SelectColumns{keepCol=AH}"
                 }, suffix: "6");
@@ -719,7 +717,7 @@ namespace Microsoft.ML.RunTests
             string pathData = GetDataPath(@"lm.sample.txt");
             TestCore(pathData, true,
                 new[] {
-                    "loader=Text{header+ col=Label:TX:0 col=One:TX:4 col=Vec:TX:3,4 rows=101}",
+                    "loader=Text{sparse+ header+ col=Label:TX:0 col=One:TX:4 col=Vec:TX:3,4 rows=101}",
                     "xf=AutoLabel{col=Label}",
                     "xf=WordBag{max=10",
                     "  col=F11:One col={name=F12 src=One ngram=4 max=3 max=4 max=5} col={name=F13 src=One ngram=3 skips=2}",
@@ -748,7 +746,7 @@ namespace Microsoft.ML.RunTests
 
             TestCore(pathData, true,
                 new[] {
-                    "loader=Text{header=+ col=Text:TX:0}",
+                    "loader=Text{sparse+ header=+ col=Text:TX:0}",
                     "xf=WordBag{col={name=TfIdf src=Text max=5 ngram=3 weighting=TfIdf}}",
                     "xf=SelectColumns{keepCol=TfIdf}",
                 });
@@ -762,25 +760,25 @@ namespace Microsoft.ML.RunTests
             string pathData = GetDataPath(@"lm.sample.txt");
             TestCore(pathData, true,
                 new[] {
-                    "loader=Text{header+ col=One:TX:4 col=Vec:TX:3,4 rows=101}",
+                    "loader=Text{sparse+ header+ col=One:TX:4 col=Vec:TX:3,4 rows=101}",
                     "xf=WordBag{col={name=WB1 src=One max=10 ngram=3 skips=2} col={name=WB2 src=One src=One max=10 ngram=3 skips=2}}",
                     "xf=SelectColumns{keepCol=WB1 keepCol=WB2}"
                 },
                 (pipe) =>
                 {
                     // Verify that WB2 = 2 * WB1
-                    using (var c = pipe.GetRowCursor(col => true))
+                    using (var c = pipe.GetRowCursorForAllColumns())
                     {
-                        var b1 = default(VBuffer<Float>);
-                        var b2 = default(VBuffer<Float>);
+                        var b1 = default(VBuffer<float>);
+                        var b2 = default(VBuffer<float>);
                         int col1, col2;
                         if (!c.Schema.TryGetColumnIndex("WB1", out col1) || !c.Schema.TryGetColumnIndex("WB2", out col2))
                         {
                             Fail("Did not find expected columns");
                             return;
                         }
-                        var get1 = c.GetGetter<VBuffer<Float>>(col1);
-                        var get2 = c.GetGetter<VBuffer<Float>>(col2);
+                        var get1 = c.GetGetter<VBuffer<float>>(col1);
+                        var get2 = c.GetGetter<VBuffer<float>>(col2);
                         while (c.MoveNext())
                         {
                             get1(ref b1);
@@ -806,19 +804,19 @@ namespace Microsoft.ML.RunTests
                     "loader=Text{header=+",
                     "  col=Label:U1[0-1]:0",
                     "  col=Features:U2:1-*",
-                    "  col=A:U1[1-5]:1",
-                    "  col=B:U1[3-8]:2",
-                    "  col=C:U4[0-5]:3",
-                    "  col=D:U1[1-*]:4",
-                    "  col=E:[3-*]:5",
-                    "  col=F:U1[0-*]:6",
+                    "  col=A:U1[0-5]:1",
+                    "  col=B:U1[0-8]:2",
+                    "  col=C:U8[6]:3",
+                    "  col=D:U1[]:4",
+                    "  col=E:U8[]:5",
+                    "  col=F:U1[]:6",
                     "}",
                     "xf=Convert{col=Label2:U2[0-1]:Label col=Features2:Features type=Num}",
                 },
 
                 pipe =>
                 {
-                    var argsText = new TextLoader.Arguments();
+                    var argsText = new TextLoader.Options();
                     bool tmp = CmdParser.ParseArguments(Env,
                         " header=+" +
                         " col=Label:TX:0" +
@@ -833,22 +831,21 @@ namespace Microsoft.ML.RunTests
                     Check(tmp, "Parsing argsText failed!");
                     IDataView view2 = TextLoader.Create(Env, argsText, new MultiFileSource(dataPath));
 
-                    var argsConv = new TypeConvertingTransformer.Arguments();
+                    var argsConv = new TypeConvertingTransformer.Options();
                     tmp = CmdParser.ParseArguments(Env,
                         " col=Label:U1[0-1]:Label" +
                         " col=Features:U2:Features" +
-                        " col=A:U1[1-5]:A" +
-                        " col=B:U1[3-8]:B" +
-                        " col=C:[0-5]:C" +
-                        " col=D:U1[1-*]:D" +
-                        " col=E" +
-                        " col=F:U1[0-*]:F" +
-                        " key={min=3}",
+                        " col=A:U1[0-5]:A" +
+                        " col=B:U1[0-8]:B" +
+                        " col=C:U8[6]:C" +
+                        " col=D:U1[]:D" +
+                        " col=E:U8[]:E" +
+                        " col=F:U1[]:F",
                         argsConv);
                     Check(tmp, "Parsing argsConv failed!");
                     view2 = TypeConvertingTransformer.Create(Env, argsConv, view2);
 
-                    argsConv = new TypeConvertingTransformer.Arguments();
+                    argsConv = new TypeConvertingTransformer.Options();
                     tmp = CmdParser.ParseArguments(Env,
                         " col=Label2:U2:Label col=Features2:Num:Features",
                         argsConv);
@@ -857,8 +854,8 @@ namespace Microsoft.ML.RunTests
 
                     var colsChoose = new[] { "Label", "Features", "Label2", "Features2", "A", "B", "C", "D", "E", "F" };
 
-                    IDataView view1 = ColumnSelectingTransformer.CreateKeep(Env, pipe, colsChoose);
-                    view2 = ColumnSelectingTransformer.CreateKeep(Env, view2, colsChoose);
+                    IDataView view1 = ML.Transforms.SelectColumns(colsChoose).Fit(pipe).Transform(pipe);
+                    view2 = ML.Transforms.SelectColumns(colsChoose).Fit(view2).Transform(view2);
 
                     CheckSameValues(view1, view2);
                 },
@@ -909,7 +906,7 @@ namespace Microsoft.ML.RunTests
             string stopwordsFile = DeleteOutputPath("SavePipe", "CustomStopwordsRemover-stopwordsFile.txt");
             File.WriteAllLines(stopwordsFile, stopwordsList);
 
-            Action<IDataLoader> action
+            Action<ILegacyDataLoader> action
                 = pipe =>
                 {
                     VBuffer<ReadOnlyMemory<char>>[] expected = new VBuffer<ReadOnlyMemory<char>>[2];
@@ -918,7 +915,7 @@ namespace Microsoft.ML.RunTests
                     ReadOnlyMemory<char>[] values1 = { "erythromycin".AsMemory(), "treating".AsMemory(), "pneumonia".AsMemory() };
                     expected[1] = new VBuffer<ReadOnlyMemory<char>>(values1.Length, values1);
 
-                    using (var c = pipe.GetRowCursor(col => true))
+                    using (var c = pipe.GetRowCursorForAllColumns())
                     {
                         int col;
                         bool res = c.Schema.TryGetColumnIndex("T", out col);
@@ -1016,7 +1013,7 @@ namespace Microsoft.ML.RunTests
             RunMTAThread(() => TestCore(null, false,
                 new[]
                 {
-                    "loader=Text",
+                    "loader=Text{sparse+}",
                     "xf=TrainScore{tr=FT scorer=fcc{top=4 bottom=2 str+}}",
                     "xf=Copy{col=ContributionsStr:FeatureContributions}",
                     "xf=TrainScore{tr=FT scorer=fcc{top=3 bottom=3}}"
@@ -1032,8 +1029,8 @@ namespace Microsoft.ML.RunTests
             TestCore(null, false,
                 new[]
                 {
-                    "loader=Text xf=TrainScore{tr=AP{shuf-} scorer=fcc{str+}}"
-                }, digitsOfPrecision: 5);
+                    "loader=Text{sparse+} xf=TrainScore{tr=AP{shuf-} scorer=fcc{str+}}"
+                }, digitsOfPrecision: 4);
 
             Done();
         }
@@ -1058,7 +1055,7 @@ namespace Microsoft.ML.RunTests
         [Fact]
         public void TestHashTransformFloat()
         {
-            TestHashTransformHelper(dataFloat, resultsFloat, NumberType.R4);
+            TestHashTransformHelper(dataFloat, resultsFloat, NumberDataViewType.Single);
         }
 
         [Fact]
@@ -1066,27 +1063,27 @@ namespace Microsoft.ML.RunTests
         {
             var data = new[] { dataFloat };
             var results = new[] { resultsFloat };
-            TestHashTransformVectorHelper(data, results, NumberType.R4);
+            TestHashTransformVectorHelper(data, results, NumberDataViewType.Single);
         }
 
         [Fact]
         public void TestHashTransformFloatSparseVector()
         {
             var results = new[] { resultsFloatSparse };
-            TestHashTransformVectorHelper(dataFloatSparse, results, NumberType.R4);
+            TestHashTransformVectorHelper(dataFloatSparse, results, NumberDataViewType.Single);
         }
 
         [Fact]
         public void TestHashTransformDoubleSparseVector()
         {
             var results = new[] { resultsDoubleSparse };
-            TestHashTransformVectorHelper(dataDoubleSparse, results, NumberType.R8);
+            TestHashTransformVectorHelper(dataDoubleSparse, results, NumberDataViewType.Double);
         }
 
         [Fact]
         public void TestHashTransformDouble()
         {
-            TestHashTransformHelper(dataDouble, resultsDouble, NumberType.R8);
+            TestHashTransformHelper(dataDouble, resultsDouble, NumberDataViewType.Double);
         }
 
         [Fact]
@@ -1094,18 +1091,18 @@ namespace Microsoft.ML.RunTests
         {
             var data = new[] { dataDouble };
             var results = new[] { resultsDouble };
-            TestHashTransformVectorHelper(data, results, NumberType.R8);
+            TestHashTransformVectorHelper(data, results, NumberDataViewType.Double);
         }
 
-        private void TestHashTransformHelper<T>(T[] data, uint[] results, NumberType type)
+        private void TestHashTransformHelper<T>(T[] data, uint[] results, NumberDataViewType type)
         {
             var builder = new ArrayDataViewBuilder(Env);
 
             builder.AddColumn("F1", type, data);
             var srcView = builder.GetDataView();
 
-            var hashTransform = new HashingTransformer(Env, new HashingTransformer.ColumnInfo("F1", "F1", 5, 42)).Transform(srcView);
-            using (var cursor = hashTransform.GetRowCursor(c => true))
+            var hashTransform = new HashingTransformer(Env, new HashingEstimator.ColumnOptions("F1", "F1", 5, 42)).Transform(srcView);
+            using (var cursor = hashTransform.GetRowCursorForAllColumns())
             {
                 var resultGetter = cursor.GetGetter<uint>(1);
                 uint resultRow = 0;
@@ -1118,14 +1115,14 @@ namespace Microsoft.ML.RunTests
             }
         }
 
-        private void TestHashTransformVectorHelper<T>(T[][] data, uint[][] results, NumberType type)
+        private void TestHashTransformVectorHelper<T>(T[][] data, uint[][] results, NumberDataViewType type)
         {
             var builder = new ArrayDataViewBuilder(Env);
             builder.AddColumn("F1V", type, data);
             TestHashTransformVectorHelper(builder, results);
         }
 
-        private void TestHashTransformVectorHelper<T>(VBuffer<T> data, uint[][] results, NumberType type)
+        private void TestHashTransformVectorHelper<T>(VBuffer<T> data, uint[][] results, NumberDataViewType type)
         {
             var builder = new ArrayDataViewBuilder(Env);
             builder.AddColumn("F1V", type, data);
@@ -1135,8 +1132,8 @@ namespace Microsoft.ML.RunTests
         private void TestHashTransformVectorHelper(ArrayDataViewBuilder builder, uint[][] results)
         {
             var srcView = builder.GetDataView();
-            var hashTransform = new HashingTransformer(Env, new HashingTransformer.ColumnInfo("F1V", "F1V", 5, 42)).Transform(srcView);
-            using (var cursor = hashTransform.GetRowCursor(c => true))
+            var hashTransform = new HashingTransformer(Env, new HashingEstimator.ColumnOptions("F1V", "F1V", 5, 42)).Transform(srcView);
+            using (var cursor = hashTransform.GetRowCursorForAllColumns())
             {
                 var resultGetter = cursor.GetGetter<VBuffer<uint>>(1);
                 VBuffer<uint> resultRow = new VBuffer<uint>();
@@ -1152,7 +1149,158 @@ namespace Microsoft.ML.RunTests
             }
         }
 
-      
+        [Fact]
+        public void ArrayDataViewBuilder()
+        {
+            ArrayDataViewBuilder builder = new ArrayDataViewBuilder(Env);
+            const int rows = 100;
+            Random rgen = new Random(0);
+            float[] values = new float[rows];
+            for (int i = 0; i < values.Length; ++i)
+                values[i] = (float)(2 * rgen.NextDouble() - 1);
+            builder.AddColumn("Foo", NumberDataViewType.Single, values);
+
+            int[][] barValues = new int[rows][];
+            const int barSlots = 4;
+            for (int i = 0; i < rows; ++i)
+            {
+                barValues[i] = new int[barSlots];
+                for (int j = 0; j < barSlots; ++j)
+                    barValues[i][j] = rgen.Next(-100, 100);
+            }
+            builder.AddColumn("Bar", NumberDataViewType.Int32, barValues);
+            bool[] bizValues = new bool[rows];
+            for (int i = 0; i < rows; ++i)
+                bizValues[i] = (rgen.Next(2) == 1);
+            builder.AddColumn("Biz", BooleanDataViewType.Instance, bizValues);
+
+            IDataView view = builder.GetDataView();
+
+            Assert.Equal(3, view.Schema.Count);
+            // REVIEW: Generalize schema test.
+            Assert.Equal("Foo", view.Schema[0].Name);
+            Assert.Equal("Bar", view.Schema[1].Name);
+            Assert.Equal("Biz", view.Schema[2].Name);
+            int temp;
+            Assert.True(view.Schema.TryGetColumnIndex("Foo", out temp));
+            Assert.Equal(0, temp);
+            Assert.True(view.Schema.TryGetColumnIndex("Bar", out temp));
+            Assert.Equal(1, temp);
+            Assert.True(view.Schema.TryGetColumnIndex("Biz", out temp));
+            Assert.Equal(2, temp);
+
+            // Check the number of rows.
+            Assert.True(view.GetRowCount().HasValue);
+            Assert.Equal((long)rows, view.GetRowCount().Value);
+
+            using (DataViewRowCursor cursor = view.GetRowCursorForAllColumns())
+            {
+                var del = cursor.GetGetter<float>(0);
+                var del2 = cursor.GetGetter<VBuffer<int>>(1);
+                var del3 = cursor.GetGetter<bool>(2);
+                float value = 0;
+                VBuffer<int> value2 = default(VBuffer<int>);
+                bool value3 = default(bool);
+                int row = 0;
+                while (cursor.MoveNext())
+                {
+                    // First "Foo" column.
+                    del(ref value);
+                    Assert.Equal(values[row], value);
+
+                    // Second "Bar" column.
+                    del2(ref value2);
+                    Assert.Equal(barSlots, value2.Length);
+                    Assert.True(value2.IsDense);
+                    for (int s = 0; s < barSlots; ++s)
+                        Assert.Equal(barValues[row][s], value2.GetValues()[s]);
+
+                    // Third "Biz" column.
+                    del3(ref value3);
+                    Assert.Equal(bizValues[row], value3);
+
+                    // Non-column cursor data.
+                    Assert.Equal((long)row, cursor.Position);
+                    Assert.True(row < rows, "row cursor cursor returned more rows than expected");
+
+                    ++row;
+                }
+                Assert.Equal(rows, row);
+            }
+
+            SaveLoadText(view, Env);
+            SaveLoad(view, Env);
+
+            SaveLoadText(view, Env, suffix: "NoSchema", roundTrip: false, outputSchema: false, outputHeader: true);
+            SaveLoadText(view, Env, suffix: "NoHeader", roundTrip: false, outputSchema: true, outputHeader: false);
+            SaveLoadText(view, Env, suffix: "NoSchemaNoHeader", roundTrip: false, outputSchema: false, outputHeader: false);
+
+            SaveLoadTransposed(view, Env);
+            SaveLoadTransposed(view, Env, suffix: "2ndSave");
+
+            Done();
+        }
+
+        [Fact]
+        public void ArrayDataViewBuilderNoRows()
+        {
+            ArrayDataViewBuilder builder = new ArrayDataViewBuilder(Env);
+            builder.AddColumn("Foo", NumberDataViewType.Int32, new int[0]);
+            builder.AddColumn("Bar", NumberDataViewType.UInt16, new ushort[0]);
+
+            IDataView view = builder.GetDataView();
+
+            SaveLoadText(view, Env);
+            SaveLoad(view, Env);
+
+            Done();
+        }
+
+        [Fact]
+        public void ArrayDataViewBuilderNoRowsNoCols()
+        {
+            ArrayDataViewBuilder builder = new ArrayDataViewBuilder(Env);
+            IDataView view = builder.GetDataView(0);
+
+            // Text saving by design does not work with no columns.
+            bool caught;
+            try
+            {
+                SaveLoadText(view, Env);
+                caught = false;
+            }
+            catch (ArgumentOutOfRangeException exception)
+            {
+                caught = exception.IsMarked();
+            }
+            Check(caught, "text save/load should have thrown on no columns, but did not");
+            SaveLoad(view, Env);
+
+            Done();
+        }
+
+        [Fact]
+        public void ArrayDataViewBuilderNoCols()
+        {
+            ArrayDataViewBuilder builder = new ArrayDataViewBuilder(Env);
+            IDataView view = builder.GetDataView(100);
+
+            // Text saving by design does not work with no columns.
+            bool caught;
+            try
+            {
+                SaveLoadText(view, Env);
+                caught = false;
+            }
+            catch (ArgumentOutOfRangeException exception)
+            {
+                caught = exception.IsMarked();
+            }
+            Check(caught, "text save/load should have thrown on no columns, but did not");
+            SaveLoad(view, Env);
+
+            Done();
+        }
     }
     /// <summary>
     /// A class for non-baseline data pipe tests.
@@ -1165,24 +1313,24 @@ namespace Microsoft.ML.RunTests
             var builder = new ArrayDataViewBuilder(Env);
             var data = new[]
             {
-                new[] {  (Float)1.0,  (Float)0.0,  (Float)0.0 },
-                new[] {  (Float)0.0,  (Float)1.0,  (Float)0.0 },
-                new[] {  (Float)0.0,  (Float)0.0,  (Float)1.0 },
+                new[] {  (float)1.0,  (float)0.0,  (float)0.0 },
+                new[] {  (float)0.0,  (float)1.0,  (float)0.0 },
+                new[] {  (float)0.0,  (float)0.0,  (float)1.0 },
             };
 
-            builder.AddColumn("F1V", NumberType.Float, data);
+            builder.AddColumn("F1V", NumberDataViewType.Single, data);
             var srcView = builder.GetDataView();
 
-            var est = new LatentDirichletAllocationEstimator(Env, "F1V", numTopic: 3, numSummaryTermPerTopic: 3, alphaSum: 3, numThreads: 1, resetRandomGenerator: true);
+            var est = ML.Transforms.Text.LatentDirichletAllocation("F1V", numTopic: 3, numSummaryTermPerTopic: 3, alphaSum: 3, numThreads: 1, resetRandomGenerator: true);
             var ldaTransformer = est.Fit(srcView);
             var transformedData = ldaTransformer.Transform(srcView);
 
-            using (var cursor = transformedData.GetRowCursor(c => true))
+            using (var cursor = transformedData.GetRowCursorForAllColumns())
             {
-                var resultGetter = cursor.GetGetter<VBuffer<Float>>(1);
-                VBuffer<Float> resultFirstRow = new VBuffer<Float>();
-                VBuffer<Float> resultSecondRow = new VBuffer<Float>();
-                VBuffer<Float> resultThirdRow = new VBuffer<Float>();
+                var resultGetter = cursor.GetGetter<VBuffer<float>>(1);
+                VBuffer<float> resultFirstRow = new VBuffer<float>();
+                VBuffer<float> resultSecondRow = new VBuffer<float>();
+                VBuffer<float> resultThirdRow = new VBuffer<float>();
 
                 Assert.True(cursor.MoveNext());
                 resultGetter(ref resultFirstRow);
@@ -1211,32 +1359,24 @@ namespace Microsoft.ML.RunTests
         public void TestLdaTransformerEmptyDocumentException()
         {
             var builder = new ArrayDataViewBuilder(Env);
+            string colName = "Zeros";
             var data = new[]
             {
-                new[] {  (Float)0.0,  (Float)0.0,  (Float)0.0 },
-                new[] {  (Float)0.0,  (Float)0.0,  (Float)0.0 },
-                new[] {  (Float)0.0,  (Float)0.0,  (Float)0.0 },
+                new[] {  (float)0.0,  (float)0.0,  (float)0.0 },
+                new[] {  (float)0.0,  (float)0.0,  (float)0.0 },
+                new[] {  (float)0.0,  (float)0.0,  (float)0.0 },
             };
 
-            builder.AddColumn("Zeros", NumberType.Float, data);
+            builder.AddColumn(colName, NumberDataViewType.Single, data);
 
             var srcView = builder.GetDataView();
-            var col = new LatentDirichletAllocationTransformer.Column()
-            {
-                Source = "Zeros",
-            };
-            var args = new LatentDirichletAllocationTransformer.Arguments()
-            {
-                Column = new[] { col }
-            };
-
             try
             {
-                var lda = new LatentDirichletAllocationEstimator(Env, "Zeros").Fit(srcView).Transform(srcView);
+                var lda = ML.Transforms.Text.LatentDirichletAllocation("Zeros").Fit(srcView).Transform(srcView);
             }
             catch (InvalidOperationException ex)
             {
-                Assert.Equal(ex.Message, string.Format("The specified documents are all empty in column '{0}'.", col.Source));
+                Assert.Equal(ex.Message, string.Format("The specified documents are all empty in column '{0}'.", colName));
                 return;
             }
 

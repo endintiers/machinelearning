@@ -12,6 +12,7 @@ using System.Text.RegularExpressions;
 using Microsoft.ML.Command;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
+using Microsoft.ML.Internal.Internallearn;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Model;
 using Microsoft.ML.Tools;
@@ -20,9 +21,8 @@ using Microsoft.ML.Tools;
 using Microsoft.ML.ExperimentVisualization;
 #endif
 
-namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
+namespace Microsoft.ML.ResultProcessor
 {
-    using Float = System.Single;
     /// <summary>
     /// The processed Results of a particular Learner
     /// </summary>
@@ -192,16 +192,16 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
     [Serializable]
     public class ResultMetric
     {
-        public Float MetricValue { get; set; }
-        public Float Deviation { get; set; }
-        public Float[] AllValues { get; set; }
+        public float MetricValue { get; set; }
+        public float Deviation { get; set; }
+        public float[] AllValues { get; set; }
 
         /// <summary>
         /// Constructor initializing the object.
         /// </summary>
         /// <param name="metricValue">metric value</param>
         /// <param name="deviation">Deviation, 0.0 if not passed</param>
-        public ResultMetric(Float metricValue, Float deviation = 0)
+        public ResultMetric(float metricValue, float deviation = 0)
         {
             MetricValue = metricValue;
             Deviation = deviation;
@@ -432,9 +432,9 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
             var chainArgs = commandArgs as ChainCommand.Arguments;
             if (chainArgs != null)
             {
-                if (Utils.Size(chainArgs.Command) == 0)
+                if (Utils.Size(chainArgs.Commands) == 0)
                     return null;
-                var acceptableCommand = chainArgs.Command.Cast<ICommandLineComponentFactory>().FirstOrDefault(x =>
+                var acceptableCommand = chainArgs.Commands.Cast<ICommandLineComponentFactory>().FirstOrDefault(x =>
                     string.Equals(x.Name, "CV", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(x.Name, "TrainTest", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(x.Name, "Test", StringComparison.OrdinalIgnoreCase));
@@ -797,8 +797,8 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
                 {
                     string name = matchNameValueDeviation.Groups["name"].Value;
                     Double doubleValue = Double.Parse(matchNameValueDeviation.Groups["value"].Value, CultureInfo.InvariantCulture);
-                    Float value = (Float)doubleValue;
-                    Float deviation = (Float)Double.Parse(matchNameValueDeviation.Groups["deviation"].Value, CultureInfo.InvariantCulture);
+                    float value = (float)doubleValue;
+                    float deviation = (float)Double.Parse(matchNameValueDeviation.Groups["deviation"].Value, CultureInfo.InvariantCulture);
 
                     if (name == metricName)
                         metricValue = value;
@@ -816,7 +816,7 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
                 if (matchNameValue.Success)
                 {
                     string name = matchNameValue.Groups["name"].Value;
-                    Float value = Float.Parse(matchNameValue.Groups["value"].Value, CultureInfo.InvariantCulture);
+                    float value = float.Parse(matchNameValue.Groups["value"].Value, CultureInfo.InvariantCulture);
 
                     runResults[name] = new ResultMetric(value);
                     continue;
@@ -889,7 +889,7 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
         {
             Dictionary<string, ResultMetric> perFoldMetrics = new Dictionary<string, ResultMetric>();
 
-            Dictionary<int, Dictionary<string, Float>> foldResults = new Dictionary<int, Dictionary<string, Float>>();
+            Dictionary<int, Dictionary<string, float>> foldResults = new Dictionary<int, Dictionary<string, float>>();
             int i = 0;
             while (i < lines.Count)
             {
@@ -924,7 +924,7 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
             }
 
             // pivot foldResults to be indexed by metric
-            var metricToFoldValuesDict = new Dictionary<string, Dictionary<int, Float>>();
+            var metricToFoldValuesDict = new Dictionary<string, Dictionary<int, float>>();
             List<int> allFoldIndices = new List<int>(foldResults.Keys);
             allFoldIndices.Sort();
             foreach (var kvp in foldResults)
@@ -932,10 +932,10 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
                 int foldIdx = kvp.Key;
                 foreach (var kvp1 in kvp.Value)
                 {
-                    Dictionary<int, Float> metricDict = null;
+                    Dictionary<int, float> metricDict = null;
                     if (!metricToFoldValuesDict.TryGetValue(kvp1.Key, out metricDict))
                     {
-                        metricDict = new Dictionary<int, Float>();
+                        metricDict = new Dictionary<int, float>();
                         metricToFoldValuesDict[kvp1.Key] = metricDict;
                     }
                     metricDict[foldIdx] = kvp1.Value;
@@ -944,9 +944,9 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
 
             foreach (var metricValues in metricToFoldValuesDict)
             {
-                perFoldMetrics[metricValues.Key] = new ResultMetric(Float.NaN)
+                perFoldMetrics[metricValues.Key] = new ResultMetric(float.NaN)
                 {
-                    AllValues = new List<Float>(from kvp in metricValues.Value
+                    AllValues = new List<float>(from kvp in metricValues.Value
                                                 orderby kvp.Key ascending
                                                 select kvp.Value).ToArray()
                 };
@@ -958,20 +958,20 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
         /// <summary>
         /// Given output for a single fold, add its results
         /// </summary>
-        protected static KeyValuePair<int, Dictionary<string, Float>> AddFoldResults(IList<string> lines)
+        protected static KeyValuePair<int, Dictionary<string, float>> AddFoldResults(IList<string> lines)
         {
             int foldIdx = -1;
             string[] foldLineCols = lines[0].Split();
             if (foldLineCols.Length < 2)
             {
                 Console.Error.WriteLine("Couldn't parse fold index line: " + lines[0]);
-                return new KeyValuePair<int, Dictionary<string, Float>>(-1, null);
+                return new KeyValuePair<int, Dictionary<string, float>>(-1, null);
             }
 
             if (!int.TryParse(foldLineCols[foldLineCols.Length - 1], out foldIdx))
             {
                 Console.Error.WriteLine("Couldn't parse fold index line: " + lines[0]);
-                return new KeyValuePair<int, Dictionary<string, Float>>(-1, null);
+                return new KeyValuePair<int, Dictionary<string, float>>(-1, null);
             }
 
             // if run index is in front of fold index, account for it
@@ -982,7 +982,7 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
                     foldIdx += (int)(foldIdxExtra * Math.Pow(1000, j));
             }
 
-            Dictionary<string, Float> valuesDict = new Dictionary<string, Float>();
+            Dictionary<string, float> valuesDict = new Dictionary<string, float>();
             for (int i = 1; i < lines.Count; i++)
             {
                 if (lines[i].IndexOf(':') < 0)
@@ -992,12 +992,12 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
                     continue;
                 if (nameValCols[1].EndsWith("%"))
                     nameValCols[1] = nameValCols[1].Substring(0, nameValCols[1].Length - 1);
-                Float value = 0;
-                if (!Float.TryParse(nameValCols[1], out value))
+                float value = 0;
+                if (!float.TryParse(nameValCols[1], out value))
                     continue;
                 valuesDict[nameValCols[0]] = value;
             }
-            return new KeyValuePair<int, Dictionary<string, Float>>(foldIdx, valuesDict);
+            return new KeyValuePair<int, Dictionary<string, float>>(foldIdx, valuesDict);
         }
 
         /// <summary>
@@ -1155,7 +1155,7 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
         public static int Main(string[] args)
         {
             string currentDirectory = Path.GetDirectoryName(typeof(ResultProcessor).Module.FullyQualifiedName);
-            using (var env = new ConsoleEnvironment(42))
+            var env = new ConsoleEnvironment(42);
 #pragma warning disable CS0618 // The result processor is an internal command line processing utility anyway, so this is, while not great, OK.
             using (AssemblyLoadingUtils.CreateAssemblyRegistrar(env, currentDirectory))
 #pragma warning restore CS0618
@@ -1305,9 +1305,9 @@ namespace Microsoft.ML.Internal.Internallearn.ResultProcessor
                     {
                         foreach (var kvp in result.PerFoldResults)
                         {
-                            if (Float.IsNaN(kvp.Value.MetricValue) && kvp.Value.AllValues != null)
+                            if (float.IsNaN(kvp.Value.MetricValue) && kvp.Value.AllValues != null)
                                 outStream.Write("\t" + kvp.Key + ":"
-                                    + string.Join(cmd.PerFoldResultSeparator, new List<string>(new List<Float>(kvp.Value.AllValues).Select(d => "" + d))));
+                                    + string.Join(cmd.PerFoldResultSeparator, new List<string>(new List<float>(kvp.Value.AllValues).Select(d => "" + d))));
                         }
                     }
 

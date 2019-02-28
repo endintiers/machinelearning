@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using Microsoft.Data.DataView;
+
 namespace Microsoft.ML.Data
 {
     /// <summary>
@@ -39,7 +41,7 @@ namespace Microsoft.ML.Data
         /// </summary>
         public double Entropy { get; }
 
-        internal CalibratedBinaryClassificationMetrics(IExceptionContext ectx, Row overallResult)
+        internal CalibratedBinaryClassificationMetrics(IExceptionContext ectx, DataViewRow overallResult)
             : base(ectx, overallResult)
         {
             double Fetch(string name) => Fetch<double>(ectx, overallResult, name);

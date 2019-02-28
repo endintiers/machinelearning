@@ -26,7 +26,7 @@ namespace Microsoft.ML.TestFramework
 
         private static string GetRepoRoot()
         {
-#if NET462
+#if NETFRAMEWORK
             string directory = AppDomain.CurrentDomain.BaseDirectory;
 #else
             string directory = AppContext.BaseDirectory;
@@ -51,9 +51,10 @@ namespace Microsoft.ML.TestFramework
             //correct results that are on en-US locale.
             Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
 
-#if NET462
-            // Substring is  removing initial "file:///" from the codebase string.
-            var currentAssemblyLocation = new FileInfo(Directory.GetParent(typeof(BaseTestClass).Assembly.CodeBase.Substring(8)).FullName);
+#if NETFRAMEWORK
+            string codeBaseUri = typeof(BaseTestClass).Assembly.CodeBase;
+            string path = new Uri(codeBaseUri).AbsolutePath;
+            var currentAssemblyLocation = new FileInfo(Directory.GetParent(path).FullName);
 #else
             // There is an extra folder in the netfx path representing the runtime identifier.
             var currentAssemblyLocation = new FileInfo(typeof(BaseTestClass).Assembly.Location);

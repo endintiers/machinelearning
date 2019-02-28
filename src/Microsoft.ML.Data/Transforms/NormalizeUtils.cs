@@ -4,13 +4,13 @@
 
 using System;
 using System.Collections.Generic;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.Data;
 using Microsoft.ML.EntryPoints;
-using Microsoft.ML.Model;
-using Microsoft.ML.Model.Onnx;
+using Microsoft.ML.Model.OnnxConverter;
 using Microsoft.ML.Model.Pfa;
-using Microsoft.ML.Transforms.Normalizers;
+using Microsoft.ML.Transforms;
 using Newtonsoft.Json.Linq;
 
 [assembly: LoadableClass(typeof(void), typeof(Normalize), null, typeof(SignatureEntryPointModule), "Normalize")]
@@ -18,9 +18,10 @@ using Newtonsoft.Json.Linq;
 namespace Microsoft.ML.Data
 {
     /// <summary>
-    /// Signature for a repository based loader of a IColumnFunction
+    /// Signature for a repository based loader of an <see cref="IColumnFunction"/>.
     /// </summary>
-    public delegate void SignatureLoadColumnFunction(ModelLoadContext ctx, IHost host, ColumnType typeSrc);
+    [BestFriend]
+    internal delegate void SignatureLoadColumnFunction(ModelLoadContext ctx, IHost host, DataViewType typeSrc);
 
     internal interface IColumnFunctionBuilder
     {
@@ -56,9 +57,9 @@ namespace Microsoft.ML.Data
     [BestFriend]
     internal interface IColumnFunction : ICanSaveModel
     {
-        Delegate GetGetter(Row input, int icol);
+        Delegate GetGetter(DataViewRow input, int icol);
 
-        void AttachMetadata(MetadataDispatcher.Builder bldr, ColumnType typeSrc);
+        void AttachMetadata(MetadataDispatcher.Builder bldr, DataViewType typeSrc);
 
         JToken PfaInfo(BoundPfaContext ctx, JToken srcToken);
 
@@ -72,7 +73,8 @@ namespace Microsoft.ML.Data
     /// <summary>
     /// This contains entry-point definitions related to <see cref="NormalizeTransform"/>.
     /// </summary>
-    public static class Normalize
+    [BestFriend]
+    internal static class Normalize
     {
         [TlcModule.EntryPoint(Name = "Transforms.MinMaxNormalizer", Desc = NormalizeTransform.MinMaxNormalizerSummary, UserName = NormalizeTransform.MinMaxNormalizerUserName, ShortName = NormalizeTransform.MinMaxNormalizerShortName)]
         public static CommonOutputs.TransformOutput MinMax(IHostEnvironment env, NormalizeTransform.MinMaxArguments input)
@@ -130,10 +132,10 @@ namespace Microsoft.ML.Data
         {
             var schema = input.Data.Schema;
             var columnsToNormalize = new List<NormalizeTransform.AffineColumn>();
-            foreach (var column in input.Column)
+            foreach (var column in input.Columns)
             {
                 if (!schema.TryGetColumnIndex(column.Source, out int col))
-                    throw env.ExceptUserArg(nameof(input.Column), $"Column '{column.Source}' does not exist.");
+                    throw env.ExceptUserArg(nameof(input.Columns), $"Column '{column.Source}' does not exist.");
                 if (!schema[col].IsNormalized())
                     columnsToNormalize.Add(column);
             }
@@ -146,7 +148,7 @@ namespace Microsoft.ML.Data
             }
             else
             {
-                input.Column = columnsToNormalize.ToArray();
+                input.Columns = columnsToNormalize.ToArray();
                 var entryPointNode = EntryPointNode.Create(env, "Transforms.MinMaxNormalizer", input, node.Context, node.InputBindingMap, node.InputMap, node.OutputMap);
                 entryPoints.Add(entryPointNode);
             }

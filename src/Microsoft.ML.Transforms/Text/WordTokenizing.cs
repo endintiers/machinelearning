@@ -6,9 +6,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
-using Microsoft.ML.Core.Data;
 using Microsoft.ML.Data;
 using Microsoft.ML.EntryPoints;
 using Microsoft.ML.Internal.Internallearn;
@@ -18,7 +18,7 @@ using Microsoft.ML.Model.Pfa;
 using Microsoft.ML.Transforms.Text;
 using Newtonsoft.Json.Linq;
 
-[assembly: LoadableClass(WordTokenizingTransformer.Summary, typeof(IDataTransform), typeof(WordTokenizingTransformer), typeof(WordTokenizingTransformer.Arguments), typeof(SignatureDataTransform),
+[assembly: LoadableClass(WordTokenizingTransformer.Summary, typeof(IDataTransform), typeof(WordTokenizingTransformer), typeof(WordTokenizingTransformer.Options), typeof(SignatureDataTransform),
     "Word Tokenizer Transform", "WordTokenizeTransform", "DelimitedTokenizeTransform", "WordToken", "DelimitedTokenize", "Token")]
 
 [assembly: LoadableClass(WordTokenizingTransformer.Summary, typeof(IDataTransform), typeof(WordTokenizingTransformer), null, typeof(SignatureLoadDataTransform),
@@ -39,14 +39,14 @@ namespace Microsoft.ML.Transforms.Text
     /// <include file='doc.xml' path='doc/members/member[@name="WordTokenizer"]/*' />
     public sealed class WordTokenizingTransformer : OneToOneTransformerBase
     {
-        public class Column : OneToOneColumn
+        internal class Column : OneToOneColumn
         {
             [Argument(ArgumentType.AtMostOnce,
                 HelpText = "Comma separated set of term separator(s). Commonly: 'space', 'comma', 'semicolon' or other single character.",
                 ShortName = "sep")]
             public string TermSeparators;
 
-            public static Column Parse(string str)
+            internal static Column Parse(string str)
             {
                 Contracts.AssertNonEmpty(str);
 
@@ -56,14 +56,14 @@ namespace Microsoft.ML.Transforms.Text
                 return null;
             }
 
-            public bool TryUnparse(StringBuilder sb)
+            internal bool TryUnparse(StringBuilder sb)
             {
                 Contracts.AssertValue(sb);
                 return TryUnparseCore(sb);
             }
         }
 
-        public abstract class ArgumentsBase : TransformInputBase
+        internal abstract class ArgumentsBase : TransformInputBase
         {
             // REVIEW: Think about adding a user specified separator string, that is added as an extra token between
             // the tokens of each column
@@ -80,14 +80,10 @@ namespace Microsoft.ML.Transforms.Text
             public char[] CharArrayTermSeparators;
         }
 
-        public sealed class Arguments : ArgumentsBase
+        internal sealed class Options : ArgumentsBase
         {
-            [Argument(ArgumentType.Multiple, HelpText = "New column definition(s)", ShortName = "col", SortOrder = 1)]
-            public Column[] Column;
-        }
-
-        public sealed class TokenizeArguments : ArgumentsBase
-        {
+            [Argument(ArgumentType.Multiple, HelpText = "New column definition(s)", Name = "Column", ShortName = "col", SortOrder = 1)]
+            public Column[] Columns;
         }
 
         internal const string Summary = "The input to this transform is text, and the output is a vector of text containing the words (tokens) in the original text. "
@@ -110,52 +106,33 @@ namespace Microsoft.ML.Transforms.Text
 
         private const string RegistrationName = "DelimitedTokenize";
 
-        public sealed class ColumnInfo
-        {
-            public readonly string Input;
-            public readonly string Output;
-            public readonly char[] Separators;
+        public IReadOnlyCollection<WordTokenizingEstimator.ColumnOptions> Columns => _columns.AsReadOnly();
+        private readonly WordTokenizingEstimator.ColumnOptions[] _columns;
 
-            /// <summary>
-            /// Describes how the transformer handles one column pair.
-            /// </summary>
-            /// <param name="input">Name of input column.</param>
-            /// <param name="output">Name of output column.</param>
-            /// <param name="separators">Casing text using the rules of the invariant culture. If not specified, space will be used as separator.</param>
-            public ColumnInfo(string input, string output, char[] separators = null)
-            {
-                Input = input;
-                Output = output;
-                Separators = separators ?? new[] { ' ' };
-            }
-        }
-        public IReadOnlyCollection<ColumnInfo> Columns => _columns.AsReadOnly();
-        private readonly ColumnInfo[] _columns;
-
-        private static (string input, string output)[] GetColumnPairs(ColumnInfo[] columns)
+        private static (string name, string inputColumnName)[] GetColumnPairs(WordTokenizingEstimator.ColumnOptions[] columns)
         {
             Contracts.CheckNonEmpty(columns, nameof(columns));
-            return columns.Select(x => (x.Input, x.Output)).ToArray();
+            return columns.Select(x => (x.Name, x.InputColumnName)).ToArray();
         }
 
-        public WordTokenizingTransformer(IHostEnvironment env, params ColumnInfo[] columns) :
+        internal WordTokenizingTransformer(IHostEnvironment env, params WordTokenizingEstimator.ColumnOptions[] columns) :
             base(Contracts.CheckRef(env, nameof(env)).Register(RegistrationName), GetColumnPairs(columns))
         {
             _columns = columns.ToArray();
         }
 
-        protected override void CheckInputColumn(Schema inputSchema, int col, int srcCol)
+        private protected override void CheckInputColumn(DataViewSchema inputSchema, int col, int srcCol)
         {
             var type = inputSchema[srcCol].Type;
             if (!WordTokenizingEstimator.IsColumnTypeValid(type))
-                throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", ColumnPairs[col].input, WordTokenizingEstimator.ExpectedColumnType, type.ToString());
+                throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", ColumnPairs[col].inputColumnName, WordTokenizingEstimator.ExpectedColumnType, type.ToString());
         }
 
         private WordTokenizingTransformer(IHost host, ModelLoadContext ctx) :
             base(host, ctx)
         {
             var columnsLength = ColumnPairs.Length;
-            _columns = new ColumnInfo[columnsLength];
+            _columns = new WordTokenizingEstimator.ColumnOptions[columnsLength];
             // *** Binary format ***
             // <base>
             // for each added column
@@ -164,7 +141,7 @@ namespace Microsoft.ML.Transforms.Text
             {
                 var separators = ctx.Reader.ReadCharArray();
                 Contracts.CheckDecode(Utils.Size(separators) > 0);
-                _columns[i] = new ColumnInfo(ColumnPairs[i].input, ColumnPairs[i].output, separators);
+                _columns[i] = new WordTokenizingEstimator.ColumnOptions(ColumnPairs[i].outputColumnName, ColumnPairs[i].inputColumnName, separators);
             }
         }
 
@@ -172,7 +149,7 @@ namespace Microsoft.ML.Transforms.Text
         private static IDataTransform Create(IHostEnvironment env, ModelLoadContext ctx, IDataView input)
             => Create(env, ctx).MakeDataTransform(input);
 
-        public override void Save(ModelSaveContext ctx)
+        private protected override void SaveModel(ModelSaveContext ctx)
         {
             Host.CheckValue(ctx, nameof(ctx));
             ctx.CheckAtModel();
@@ -198,80 +175,80 @@ namespace Microsoft.ML.Transforms.Text
         }
 
         // Factory method for SignatureDataTransform.
-        internal static IDataTransform Create(IHostEnvironment env, Arguments args, IDataView input)
+        internal static IDataTransform Create(IHostEnvironment env, Options options, IDataView input)
         {
             Contracts.CheckValue(env, nameof(env));
-            env.CheckValue(args, nameof(args));
+            env.CheckValue(options, nameof(options));
             env.CheckValue(input, nameof(input));
 
-            env.CheckValue(args.Column, nameof(args.Column));
-            var cols = new ColumnInfo[args.Column.Length];
+            env.CheckValue(options.Columns, nameof(options.Columns));
+            var cols = new WordTokenizingEstimator.ColumnOptions[options.Columns.Length];
             for (int i = 0; i < cols.Length; i++)
             {
-                var item = args.Column[i];
-                var separators = args.CharArrayTermSeparators ?? PredictionUtil.SeparatorFromString(item.TermSeparators ?? args.TermSeparators);
-                cols[i] = new ColumnInfo(item.Source ?? item.Name, item.Name, separators);
+                var item = options.Columns[i];
+                var separators = options.CharArrayTermSeparators ?? PredictionUtil.SeparatorFromString(item.TermSeparators ?? options.TermSeparators);
+                cols[i] = new WordTokenizingEstimator.ColumnOptions(item.Name, item.Source ?? item.Name, separators);
 
             }
             return new WordTokenizingTransformer(env, cols).MakeDataTransform(input);
         }
 
         // Factory method for SignatureLoadRowMapper.
-        private static IRowMapper Create(IHostEnvironment env, ModelLoadContext ctx, Schema inputSchema)
+        private static IRowMapper Create(IHostEnvironment env, ModelLoadContext ctx, DataViewSchema inputSchema)
             => Create(env, ctx).MakeRowMapper(inputSchema);
 
-        private protected override IRowMapper MakeRowMapper(Schema schema) => new Mapper(this, schema);
+        private protected override IRowMapper MakeRowMapper(DataViewSchema schema) => new Mapper(this, schema);
 
         private sealed class Mapper : OneToOneMapperBase, ISaveAsPfa
         {
-            private readonly ColumnType _type;
+            private readonly DataViewType _type;
             private readonly WordTokenizingTransformer _parent;
             private readonly bool[] _isSourceVector;
 
             public bool CanSavePfa => true;
 
-            public Mapper(WordTokenizingTransformer parent, Schema inputSchema)
+            public Mapper(WordTokenizingTransformer parent, DataViewSchema inputSchema)
               : base(parent.Host.Register(nameof(Mapper)), parent, inputSchema)
             {
                 _parent = parent;
-                _type = new VectorType(TextType.Instance);
+                _type = new VectorType(TextDataViewType.Instance);
                 _isSourceVector = new bool[_parent._columns.Length];
                 for (int i = 0; i < _isSourceVector.Length; i++)
                 {
-                    inputSchema.TryGetColumnIndex(_parent._columns[i].Input, out int srcCol);
+                    inputSchema.TryGetColumnIndex(_parent._columns[i].InputColumnName, out int srcCol);
                     var srcType = inputSchema[srcCol].Type;
                     _isSourceVector[i] = srcType is VectorType;
                 }
             }
 
-            protected override Schema.DetachedColumn[] GetOutputColumnsCore()
+            protected override DataViewSchema.DetachedColumn[] GetOutputColumnsCore()
             {
-                var result = new Schema.DetachedColumn[_parent.ColumnPairs.Length];
+                var result = new DataViewSchema.DetachedColumn[_parent.ColumnPairs.Length];
                 for (int i = 0; i < _parent.ColumnPairs.Length; i++)
                 {
-                    InputSchema.TryGetColumnIndex(_parent.ColumnPairs[i].input, out int colIndex);
+                    InputSchema.TryGetColumnIndex(_parent.ColumnPairs[i].inputColumnName, out int colIndex);
                     Host.Assert(colIndex >= 0);
-                    result[i] = new Schema.DetachedColumn(_parent.ColumnPairs[i].output, _type, null);
+                    result[i] = new DataViewSchema.DetachedColumn(_parent.ColumnPairs[i].outputColumnName, _type, null);
                 }
                 return result;
             }
 
-            protected override Delegate MakeGetter(Row input, int iinfo, Func<int, bool> activeOutput, out Action disposer)
+            protected override Delegate MakeGetter(DataViewRow input, int iinfo, Func<int, bool> activeOutput, out Action disposer)
             {
                 Host.AssertValue(input);
                 Host.Assert(0 <= iinfo && iinfo < _parent._columns.Length);
                 disposer = null;
 
-                input.Schema.TryGetColumnIndex(_parent._columns[iinfo].Input, out int srcCol);
+                input.Schema.TryGetColumnIndex(_parent._columns[iinfo].InputColumnName, out int srcCol);
                 var srcType = input.Schema[srcCol].Type;
-                Host.Assert(srcType.GetItemType() is TextType);
+                Host.Assert(srcType.GetItemType() is TextDataViewType);
 
                 if (!(srcType is VectorType))
                     return MakeGetterOne(input, iinfo);
                 return MakeGetterVec(input, iinfo);
             }
 
-            private ValueGetter<VBuffer<ReadOnlyMemory<char>>> MakeGetterOne(Row input, int iinfo)
+            private ValueGetter<VBuffer<ReadOnlyMemory<char>>> MakeGetterOne(DataViewRow input, int iinfo)
             {
                 Host.AssertValue(input);
                 var getSrc = input.GetGetter<ReadOnlyMemory<char>>(ColMapNewToOld[iinfo]);
@@ -297,7 +274,7 @@ namespace Microsoft.ML.Transforms.Text
                     };
             }
 
-            private ValueGetter<VBuffer<ReadOnlyMemory<char>>> MakeGetterVec(Row input, int iinfo)
+            private ValueGetter<VBuffer<ReadOnlyMemory<char>>> MakeGetterVec(DataViewRow input, int iinfo)
             {
                 Host.AssertValue(input);
 
@@ -365,20 +342,20 @@ namespace Microsoft.ML.Transforms.Text
                 for (int iinfo = 0; iinfo < _parent._columns.Length; ++iinfo)
                 {
                     var info = _parent._columns[iinfo];
-                    var srcName = info.Input;
+                    var srcName = info.InputColumnName;
                     string srcToken = ctx.TokenOrNullForName(srcName);
                     if (srcToken == null)
                     {
-                        toHide.Add(info.Output);
+                        toHide.Add(info.Name);
                         continue;
                     }
                     var result = SaveAsPfaCore(ctx, iinfo, srcToken);
                     if (result == null)
                     {
-                        toHide.Add(info.Output);
+                        toHide.Add(info.Name);
                         continue;
                     }
-                    toDeclare.Add(new KeyValuePair<string, JToken>(info.Output, result));
+                    toDeclare.Add(new KeyValuePair<string, JToken>(info.Name, result));
                 }
                 ctx.Hide(toHide.ToArray());
                 ctx.DeclareVar(toDeclare.ToArray());
@@ -427,19 +404,19 @@ namespace Microsoft.ML.Transforms.Text
     /// </summary>
     public sealed class WordTokenizingEstimator : TrivialEstimator<WordTokenizingTransformer>
     {
-        public static bool IsColumnTypeValid(ColumnType type) => type.GetItemType() is TextType;
+        internal static bool IsColumnTypeValid(DataViewType type) => type.GetItemType() is TextDataViewType;
 
         internal const string ExpectedColumnType = "Text";
 
         /// <summary>
-        /// Tokenize incoming text in <paramref name="inputColumn"/> and output the tokens as <paramref name="outputColumn"/>.
+        /// Tokenize incoming text in <paramref name="inputColumnName"/> and output the tokens as <paramref name="outputColumnName"/>.
         /// </summary>
         /// <param name="env">The environment.</param>
-        /// <param name="inputColumn">The column containing text to tokenize.</param>
-        /// <param name="outputColumn">The column containing output tokens. Null means <paramref name="inputColumn"/> is replaced.</param>
+        /// <param name="outputColumnName">Name of the column resulting from the transformation of <paramref name="inputColumnName"/>.</param>
+        /// <param name="inputColumnName">Name of the column to transform. If set to <see langword="null"/>, the value of the <paramref name="outputColumnName"/> will be used as source.</param>
         /// <param name="separators">The separators to use (uses space character by default).</param>
-        public WordTokenizingEstimator(IHostEnvironment env, string inputColumn, string outputColumn = null, char[] separators = null)
-            : this(env, new[] { (inputColumn, outputColumn ?? inputColumn) }, separators)
+        internal WordTokenizingEstimator(IHostEnvironment env, string outputColumnName, string inputColumnName = null, char[] separators = null)
+            : this(env, new[] { (outputColumnName, inputColumnName ?? outputColumnName) }, separators)
         {
         }
 
@@ -449,8 +426,8 @@ namespace Microsoft.ML.Transforms.Text
         /// <param name="env">The environment.</param>
         /// <param name="columns">Pairs of columns to run the tokenization on.</param>
         /// <param name="separators">The separators to use (uses space character by default).</param>
-        public WordTokenizingEstimator(IHostEnvironment env, (string input, string output)[] columns, char[] separators = null)
-            : this(env, columns.Select(x => new WordTokenizingTransformer.ColumnInfo(x.input, x.output, separators)).ToArray())
+        internal WordTokenizingEstimator(IHostEnvironment env, (string outputColumnName, string inputColumnName)[] columns, char[] separators = null)
+            : this(env, columns.Select(x => new ColumnOptions(x.outputColumnName, x.inputColumnName, separators)).ToArray())
         {
         }
 
@@ -459,22 +436,45 @@ namespace Microsoft.ML.Transforms.Text
         /// </summary>
         /// <param name="env">The environment.</param>
         /// <param name="columns">Pairs of columns to run the tokenization on.</param>
-        public WordTokenizingEstimator(IHostEnvironment env, params WordTokenizingTransformer.ColumnInfo[] columns)
+        internal WordTokenizingEstimator(IHostEnvironment env, params ColumnOptions[] columns)
           : base(Contracts.CheckRef(env, nameof(env)).Register(nameof(WordTokenizingEstimator)), new WordTokenizingTransformer(env, columns))
         {
         }
+        public sealed class ColumnOptions
+        {
+            public readonly string Name;
+            public readonly string InputColumnName;
+            public readonly char[] Separators;
 
+            /// <summary>
+            /// Describes how the transformer handles one column pair.
+            /// </summary>
+            /// <param name="name">Name of the column resulting from the transformation of <paramref name="inputColumnName"/>.</param>
+            /// <param name="inputColumnName">Name of column to transform. If set to <see langword="null"/>, the value of the <paramref name="name"/> will be used as source.</param>
+            /// <param name="separators">Casing text using the rules of the invariant culture. If not specified, space will be used as separator.</param>
+            public ColumnOptions(string name, string inputColumnName = null, char[] separators = null)
+            {
+                Name = name;
+                InputColumnName = inputColumnName ?? name;
+                Separators = separators ?? new[] { ' ' };
+            }
+        }
+
+        /// <summary>
+        /// Returns the <see cref="SchemaShape"/> of the schema which will be produced by the transformer.
+        /// Used for schema propagation and verification in a pipeline.
+        /// </summary>
         public override SchemaShape GetOutputSchema(SchemaShape inputSchema)
         {
             Host.CheckValue(inputSchema, nameof(inputSchema));
             var result = inputSchema.ToDictionary(x => x.Name);
             foreach (var colInfo in Transformer.Columns)
             {
-                if (!inputSchema.TryFindColumn(colInfo.Input, out var col))
-                    throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", colInfo.Input);
+                if (!inputSchema.TryFindColumn(colInfo.InputColumnName, out var col))
+                    throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", colInfo.InputColumnName);
                 if (!IsColumnTypeValid(col.ItemType))
-                    throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", colInfo.Input, ExpectedColumnType, col.ItemType.ToString());
-                result[colInfo.Output] = new SchemaShape.Column(colInfo.Output, SchemaShape.Column.VectorKind.VariableVector, col.ItemType, false);
+                    throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", colInfo.InputColumnName, ExpectedColumnType, col.ItemType.ToString());
+                result[colInfo.Name] = new SchemaShape.Column(colInfo.Name, SchemaShape.Column.VectorKind.VariableVector, col.ItemType, false);
             }
 
             return new SchemaShape(result.Values);

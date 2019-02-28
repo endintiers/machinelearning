@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
@@ -14,7 +15,7 @@ using Newtonsoft.Json.Linq;
 
 namespace Microsoft.ML.EntryPoints
 {
-    public static class TrainTestMacro
+    internal static class TrainTestMacro
     {
         public sealed class SubGraphInput
         {
@@ -208,7 +209,7 @@ namespace Microsoft.ML.EntryPoints
             subGraphNodes.Add(scoreNode);
             var evalDataVarName = scoreNodeOutputScoredData.VarName;
 
-            // REVIEW: add similar support for FeatureColumn.
+            // REVIEW: add similar support for FeatureColumnName.
             var settings = new MacroUtils.EvaluatorSettings
             {
                 LabelColumn = input.LabelColumn,
@@ -294,4 +295,3 @@ namespace Microsoft.ML.EntryPoints
         }
     }
 }
-#pragma warning restore 612

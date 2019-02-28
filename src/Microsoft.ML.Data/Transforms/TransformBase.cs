@@ -6,9 +6,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Internal.Utilities;
-using Microsoft.ML.Model;
-using Microsoft.ML.Model.Onnx;
+using Microsoft.ML.Model.OnnxConverter;
 using Microsoft.ML.Model.Pfa;
 using Newtonsoft.Json.Linq;
 
@@ -17,7 +17,8 @@ namespace Microsoft.ML.Data
     /// <summary>
     /// Base class for transforms.
     /// </summary>
-    public abstract class TransformBase : IDataTransform
+    [BestFriend]
+    internal abstract class TransformBase : IDataTransform
     {
         protected readonly IHost Host;
 
@@ -42,7 +43,9 @@ namespace Microsoft.ML.Data
             Source = input;
         }
 
-        public abstract void Save(ModelSaveContext ctx);
+        void ICanSaveModel.Save(ModelSaveContext ctx) => SaveModel(ctx);
+
+        private protected abstract void SaveModel(ModelSaveContext ctx);
 
         public abstract long? GetRowCount();
 
@@ -55,14 +58,15 @@ namespace Microsoft.ML.Data
         /// is that a transformer should know the type it will produce but shouldn't contain the type of the data it produces.
         /// Thus, this field will be eventually removed while legacy code can still access <see cref="IDataView.Schema"/> for now.
         /// </summary>
-        Schema IDataView.Schema => OutputSchema;
+        DataViewSchema IDataView.Schema => OutputSchema;
 
-        public abstract Schema OutputSchema { get; }
+        public abstract DataViewSchema OutputSchema { get; }
 
-        public RowCursor GetRowCursor(Func<int, bool> predicate, Random rand = null)
+        public DataViewRowCursor GetRowCursor(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null)
         {
-            Host.CheckValue(predicate, nameof(predicate));
             Host.CheckValueOrNull(rand);
+
+            var predicate = RowCursorUtils.FromColumnsToPredicate(columnsNeeded, OutputSchema);
 
             var rng = CanShuffle ? rand : null;
             bool? useParallel = ShouldUseParallelCursors(predicate);
@@ -71,14 +75,14 @@ namespace Microsoft.ML.Data
             // When the input wants to be split, this puts the consolidation after this transform
             // instead of before. This is likely to produce better performance, for example, when
             // this is RangeFilter.
-            RowCursor curs;
+            DataViewRowCursor curs;
             if (useParallel != false &&
-                DataViewUtils.TryCreateConsolidatingCursor(out curs, this, predicate, Host, rng))
+                DataViewUtils.TryCreateConsolidatingCursor(out curs, this, columnsNeeded, Host, rng))
             {
                 return curs;
             }
 
-            return GetRowCursorCore(predicate, rng);
+            return GetRowCursorCore(columnsNeeded, rng);
         }
 
         /// <summary>
@@ -92,15 +96,16 @@ namespace Microsoft.ML.Data
         /// <summary>
         /// Create a single (non-parallel) row cursor.
         /// </summary>
-        protected abstract RowCursor GetRowCursorCore(Func<int, bool> predicate, Random rand = null);
+        protected abstract DataViewRowCursor GetRowCursorCore(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null);
 
-        public abstract RowCursor[] GetRowCursorSet(Func<int, bool> predicate, int n, Random rand = null);
+        public abstract DataViewRowCursor[] GetRowCursorSet(IEnumerable<DataViewSchema.Column> columnsNeeded, int n, Random rand = null);
     }
 
     /// <summary>
     /// Base class for transforms that map single input row to single output row.
     /// </summary>
-    public abstract class RowToRowTransformBase : TransformBase
+    [BestFriend]
+    internal abstract class RowToRowTransformBase : TransformBase
     {
         protected RowToRowTransformBase(IHostEnvironment env, string name, IDataView input)
             : base(env, name, input)
@@ -118,7 +123,8 @@ namespace Microsoft.ML.Data
     /// <summary>
     /// Base class for transforms that filter out rows without changing the schema.
     /// </summary>
-    public abstract class FilterBase : TransformBase, ITransformCanSavePfa
+    [BestFriend]
+    internal abstract class FilterBase : TransformBase, ITransformCanSavePfa
     {
         [BestFriend]
         private protected FilterBase(IHostEnvironment env, string name, IDataView input)
@@ -134,7 +140,7 @@ namespace Microsoft.ML.Data
 
         public override long? GetRowCount() => null;
 
-        public override Schema OutputSchema => Source.Schema;
+        public override DataViewSchema OutputSchema => Source.Schema;
 
         bool ICanSavePfa.CanSavePfa => true;
 
@@ -145,7 +151,8 @@ namespace Microsoft.ML.Data
         }
     }
 
-    public abstract class RowToRowMapperTransformBase : RowToRowTransformBase, IRowToRowMapper
+    [BestFriend]
+    internal abstract class RowToRowMapperTransformBase : RowToRowTransformBase, IRowToRowMapper
     {
         protected RowToRowMapperTransformBase(IHostEnvironment env, string name, IDataView input)
             : base(env, name, input)
@@ -157,16 +164,17 @@ namespace Microsoft.ML.Data
         {
         }
 
-        public Func<int, bool> GetDependencies(Func<int, bool> predicate)
-        {
-            return GetDependenciesCore(predicate);
-        }
+        /// <summary>
+        /// Given a set of columns, return the input columns that are needed to generate those output columns.
+        /// </summary>
+        IEnumerable<DataViewSchema.Column> IRowToRowMapper.GetDependencies(IEnumerable<DataViewSchema.Column> dependingColumns)
+            => GetDependenciesCore(dependingColumns);
 
-        protected abstract Func<int, bool> GetDependenciesCore(Func<int, bool> predicate);
+        protected abstract IEnumerable<DataViewSchema.Column> GetDependenciesCore(IEnumerable<DataViewSchema.Column> dependingColumns);
 
-        public Schema InputSchema => Source.Schema;
+        public DataViewSchema InputSchema => Source.Schema;
 
-        public Row GetRow(Row input, Func<int, bool> active)
+        public DataViewRow GetRow(DataViewRow input, Func<int, bool> active)
         {
             Host.CheckValue(input, nameof(input));
             Host.CheckValue(active, nameof(active));
@@ -179,21 +187,21 @@ namespace Microsoft.ML.Data
             }
         }
 
-        protected abstract Delegate[] CreateGetters(Row input, Func<int, bool> active, out Action disp);
+        protected abstract Delegate[] CreateGetters(DataViewRow input, Func<int, bool> active, out Action disp);
 
         protected abstract int MapColumnIndex(out bool isSrc, int col);
 
         private sealed class RowImpl : WrappingRow
         {
-            private readonly Schema _schema;
+            private readonly DataViewSchema _schema;
             private readonly Delegate[] _getters;
             private readonly Action _disposer;
 
             private readonly RowToRowMapperTransformBase _parent;
 
-            public override Schema Schema => _schema;
+            public override DataViewSchema Schema => _schema;
 
-            public RowImpl(Row input, RowToRowMapperTransformBase parent, Schema schema, Delegate[] getters, Action disposer)
+            public RowImpl(DataViewRow input, RowToRowMapperTransformBase parent, DataViewSchema schema, Delegate[] getters, Action disposer)
                 : base(input)
             {
                 _parent = parent;
@@ -239,7 +247,8 @@ namespace Microsoft.ML.Data
     /// on multiple input columns.
     /// This class provides the implementation of ISchema and IRowCursor.
     /// </summary>
-    public abstract class OneToOneTransformBase : RowToRowMapperTransformBase, ITransposeDataView, ITransformCanSavePfa,
+    [BestFriend]
+    internal abstract class OneToOneTransformBase : RowToRowMapperTransformBase, ITransposeDataView, ITransformCanSavePfa,
         ITransformCanSaveOnnx
     {
         /// <summary>
@@ -250,10 +259,10 @@ namespace Microsoft.ML.Data
         {
             public readonly string Name;
             public readonly int Source;
-            public readonly ColumnType TypeSrc;
+            public readonly DataViewType TypeSrc;
             public readonly VectorType SlotTypeSrc;
 
-            public ColInfo(string name, int colSrc, ColumnType typeSrc, VectorType slotTypeSrc)
+            public ColInfo(string name, int colSrc, DataViewType typeSrc, VectorType slotTypeSrc)
             {
                 Contracts.AssertNonEmpty(name);
                 Contracts.Assert(colSrc >= 0);
@@ -270,22 +279,26 @@ namespace Microsoft.ML.Data
 
         // The schema class for this transform. This delegates to the parent transform whatever
         // it can't figure out.
-        private sealed class Bindings : ColumnBindingsBase, ITransposeSchema
+        private sealed class Bindings : ColumnBindingsBase
         {
             // The parent transform.
             private readonly OneToOneTransformBase _parent;
-            // The source input transform schema, or null if the input was not a transpose dataview.
-            private readonly ITransposeSchema _inputTransposed;
 
             /// <summary>
             /// Information about each added column.
             /// </summary>
             public readonly ColInfo[] Infos;
 
+            public VectorType GetSlotType(int col)
+            {
+                var tidv = _parent.InputTranspose;
+                return tidv?.GetSlotType(col);
+            }
+
             private const string InvalidTypeErrorFormat = "Source column '{0}' has invalid type ('{1}'): {2}.";
 
             private Bindings(OneToOneTransformBase parent, ColInfo[] infos,
-                Schema input, bool user, string[] names)
+                DataViewSchema input, bool user, string[] names)
                 : base(input, user, names)
             {
                 Contracts.AssertValue(parent);
@@ -293,19 +306,17 @@ namespace Microsoft.ML.Data
                 Contracts.Assert(Utils.Size(infos) == InfoCount);
 
                 _parent = parent;
-                _inputTransposed = _parent.InputTranspose == null ? null : _parent.InputTranspose.TransposeSchema;
-                Contracts.Assert((_inputTransposed == null) == (_parent.InputTranspose == null));
                 Infos = infos;
             }
 
-            public static Bindings Create(OneToOneTransformBase parent, OneToOneColumn[] column, Schema input,
-                ITransposeSchema transInput, Func<ColumnType, string> testType)
+            public static Bindings Create(OneToOneTransformBase parent, OneToOneColumn[] column, DataViewSchema inputSchema,
+               ITransposeDataView transposedInput, Func<DataViewType, string> testType)
             {
                 Contracts.AssertValue(parent);
                 var host = parent.Host;
                 host.CheckUserArg(Utils.Size(column) > 0, nameof(column));
-                host.AssertValue(input);
-                host.AssertValueOrNull(transInput);
+                host.AssertValue(inputSchema);
+                host.AssertValueOrNull(transposedInput);
                 host.AssertValueOrNull(testType);
 
                 var names = new string[column.Length];
@@ -317,10 +328,10 @@ namespace Microsoft.ML.Data
                     names[i] = item.Name;
 
                     int colSrc;
-                    if (!input.TryGetColumnIndex(item.Source, out colSrc))
+                    if (!inputSchema.TryGetColumnIndex(item.Source, out colSrc))
                         throw host.ExceptUserArg(nameof(OneToOneColumn.Source), "Source column '{0}' not found", item.Source);
 
-                    var type = input[colSrc].Type;
+                    var type = inputSchema[colSrc].Type;
                     if (testType != null)
                     {
                         string reason = testType(type);
@@ -328,21 +339,21 @@ namespace Microsoft.ML.Data
                             throw host.ExceptUserArg(nameof(OneToOneColumn.Source), InvalidTypeErrorFormat, item.Source, type, reason);
                     }
 
-                    var slotType = transInput == null ? null : transInput.GetSlotType(colSrc);
-                    infos[i] = new ColInfo(names[i], colSrc, type, slotType);
+                    var slotType = transposedInput?.GetSlotType(i);
+                    infos[i] = new ColInfo(names[i], colSrc, type, slotType as VectorType);
                 }
 
-                return new Bindings(parent, infos, input, true, names);
+                return new Bindings(parent, infos, inputSchema, true, names);
             }
 
-            public static Bindings Create(OneToOneTransformBase parent, ModelLoadContext ctx, Schema input,
-                ITransposeSchema transInput, Func<ColumnType, string> testType)
+            public static Bindings Create(OneToOneTransformBase parent, ModelLoadContext ctx, DataViewSchema inputSchema,
+                ITransposeDataView transposeInput, Func<DataViewType, string> testType)
             {
                 Contracts.AssertValue(parent);
                 var host = parent.Host;
                 host.CheckValue(ctx, nameof(ctx));
-                host.AssertValue(input);
-                host.AssertValueOrNull(transInput);
+                host.AssertValue(inputSchema);
+                host.AssertValueOrNull(transposeInput);
                 host.AssertValueOrNull(testType);
 
                 // *** Binary format ***
@@ -367,23 +378,23 @@ namespace Microsoft.ML.Data
                     host.CheckDecode(!string.IsNullOrEmpty(src));
 
                     int colSrc;
-                    if (!input.TryGetColumnIndex(src, out colSrc))
-                        throw host.Except("Source column '{0}' is required but not found", src);
-                    var type = input[colSrc].Type;
+                    if (!inputSchema.TryGetColumnIndex(src, out colSrc))
+                        throw host.ExceptSchemaMismatch(nameof(inputSchema), "source", src);
+                    var type = inputSchema[colSrc].Type;
                     if (testType != null)
                     {
                         string reason = testType(type);
                         if (reason != null)
                             throw host.Except(InvalidTypeErrorFormat, src, type, reason);
                     }
-                    var slotType = transInput == null ? null : transInput.GetSlotType(colSrc);
-                    infos[i] = new ColInfo(dst, colSrc, type, slotType);
+                    var slotType = transposeInput?.GetSlotType(i);
+                    infos[i] = new ColInfo(dst, colSrc, type, slotType as VectorType);
                 }
 
-                return new Bindings(parent, infos, input, false, names);
+                return new Bindings(parent, infos, inputSchema, false, names);
             }
 
-            public void Save(ModelSaveContext ctx)
+            internal void Save(ModelSaveContext ctx)
             {
                 Contracts.AssertValue(ctx);
 
@@ -400,60 +411,45 @@ namespace Microsoft.ML.Data
                 }
             }
 
-            public Func<int, bool> GetDependencies(Func<int, bool> predicate)
+            /// <summary>
+            /// Given a set of columns, return the input columns that are needed to generate those output columns.
+            /// </summary>
+            public IEnumerable<DataViewSchema.Column> GetDependencies(IEnumerable<DataViewSchema.Column> columns)
             {
-                Contracts.AssertValue(predicate);
+                Contracts.AssertValue(columns);
 
                 var active = new bool[Input.Count];
-                for (int col = 0; col < ColumnCount; col++)
+                foreach (var col in columns)
                 {
-                    if (!predicate(col))
-                        continue;
-
                     bool isSrc;
-                    int index = MapColumnIndex(out isSrc, col);
+                    int index = MapColumnIndex(out isSrc, col.Index);
                     if (isSrc)
                         active[index] = true;
                     else
                         _parent.ActivateSourceColumns(index, active);
                 }
 
-                return col => 0 <= col && col < active.Length && active[col];
+                return Input.Where(col => col.Index < active.Length && active[col.Index]);
             }
 
             // The methods below here delegate to the parent transform.
 
-            protected override ColumnType GetColumnTypeCore(int iinfo)
+            protected override DataViewType GetColumnTypeCore(int iinfo)
             {
                 return _parent.GetColumnTypeCore(iinfo);
             }
 
-            public VectorType GetSlotType(int col)
-            {
-                _parent.Host.CheckParam(0 <= col && col < ColumnCount, nameof(col));
-
-                bool isSrc;
-                int index = MapColumnIndex(out isSrc, col);
-                if (isSrc)
-                {
-                    if (_inputTransposed != null)
-                        return _inputTransposed.GetSlotType(index);
-                    return null;
-                }
-                return _parent.GetSlotTypeCore(index);
-            }
-
-            protected override IEnumerable<KeyValuePair<string, ColumnType>> GetMetadataTypesCore(int iinfo)
+            protected override IEnumerable<KeyValuePair<string, DataViewType>> GetAnnotationTypesCore(int iinfo)
             {
                 return _parent.Metadata.GetMetadataTypes(iinfo);
             }
 
-            protected override ColumnType GetMetadataTypeCore(string kind, int iinfo)
+            protected override DataViewType GetAnnotationTypeCore(string kind, int iinfo)
             {
                 return _parent.Metadata.GetMetadataTypeOrNull(kind, iinfo);
             }
 
-            protected override void GetMetadataCore<TValue>(string kind, int iinfo, ref TValue value)
+            protected override void GetAnnotationCore<TValue>(string kind, int iinfo, ref TValue value)
             {
                 _parent.Metadata.GetMetadata<TValue>(_parent.Host, kind, iinfo, ref value);
             }
@@ -471,7 +467,6 @@ namespace Microsoft.ML.Data
         // The _input as a transposed data view, non-null iff _input is a transposed data view.
         private protected readonly ITransposeDataView InputTranspose;
         // The InputTranspose transpose schema, null iff InputTranspose is null.
-        private protected ITransposeSchema InputTransposeSchema => InputTranspose?.TransposeSchema;
 
         bool ICanSavePfa.CanSavePfa => CanSavePfaCore;
 
@@ -483,42 +478,42 @@ namespace Microsoft.ML.Data
 
         [BestFriend]
         private protected OneToOneTransformBase(IHostEnvironment env, string name, OneToOneColumn[] column,
-            IDataView input, Func<ColumnType, string> testType)
+            IDataView input, Func<DataViewType, string> testType)
             : base(env, name, input)
         {
             Host.CheckUserArg(Utils.Size(column) > 0, nameof(column));
             Host.CheckValueOrNull(testType);
             InputTranspose = Source as ITransposeDataView;
 
-            _bindings = Bindings.Create(this, column, Source.Schema, InputTransposeSchema, testType);
+            _bindings = Bindings.Create(this, column, Source.Schema, InputTranspose, testType);
             Infos = _bindings.Infos;
             Metadata = new MetadataDispatcher(Infos.Length);
         }
 
         [BestFriend]
         private protected OneToOneTransformBase(IHost host, OneToOneColumn[] column,
-            IDataView input, Func<ColumnType, string> testType)
+            IDataView input, Func<DataViewType, string> testType)
             : base(host, input)
         {
             Host.CheckUserArg(Utils.Size(column) > 0, nameof(column));
             Host.CheckValueOrNull(testType);
             InputTranspose = Source as ITransposeDataView;
 
-            _bindings = Bindings.Create(this, column, Source.Schema, InputTransposeSchema, testType);
+            _bindings = Bindings.Create(this, column, Source.Schema, InputTranspose, testType);
             Infos = _bindings.Infos;
             Metadata = new MetadataDispatcher(Infos.Length);
         }
 
         [BestFriend]
         private protected OneToOneTransformBase(IHost host, ModelLoadContext ctx,
-            IDataView input, Func<ColumnType, string> testType)
+            IDataView input, Func<DataViewType, string> testType)
             : base(host, input)
         {
             Host.CheckValue(ctx, nameof(ctx));
             Host.CheckValueOrNull(testType);
             InputTranspose = Source as ITransposeDataView;
 
-            _bindings = Bindings.Create(this, ctx, Source.Schema, InputTransposeSchema, testType);
+            _bindings = Bindings.Create(this, ctx, Source.Schema, InputTranspose, testType);
             Infos = _bindings.Infos;
             Metadata = new MetadataDispatcher(Infos.Length);
         }
@@ -528,7 +523,7 @@ namespace Microsoft.ML.Data
         /// </summary>
         [BestFriend]
         private protected OneToOneTransformBase(IHostEnvironment env, string name, OneToOneTransformBase transform,
-            IDataView newInput, Func<ColumnType, string> checkType)
+            IDataView newInput, Func<DataViewType, string> checkType)
             : base(env, name, newInput)
         {
             Host.CheckValueOrNull(checkType);
@@ -542,7 +537,7 @@ namespace Microsoft.ML.Data
                 })
                 .ToArray();
 
-            _bindings = Bindings.Create(this, map, newInput.Schema, InputTransposeSchema, checkType);
+            _bindings = Bindings.Create(this, map, newInput.Schema, InputTranspose, checkType);
             Infos = _bindings.Infos;
             Metadata = new MetadataDispatcher(Infos.Length);
         }
@@ -595,14 +590,14 @@ namespace Microsoft.ML.Data
             for (int iinfo = 0; iinfo < Infos.Length; ++iinfo)
             {
                 ColInfo info = Infos[iinfo];
-                string sourceColumnName = Source.Schema[info.Source].Name;
-                if (!ctx.ContainsColumn(sourceColumnName))
+                string inputColumnName = Source.Schema[info.Source].Name;
+                if (!ctx.ContainsColumn(inputColumnName))
                 {
                     ctx.RemoveColumn(info.Name, false);
                     continue;
                 }
 
-                if (!SaveAsOnnxCore(ctx, iinfo, info, ctx.GetVariableName(sourceColumnName),
+                if (!SaveAsOnnxCore(ctx, iinfo, info, ctx.GetVariableName(inputColumnName),
                     ctx.AddIntermediateVariable(OutputSchema[_bindings.MapIinfoToCol(iinfo)].Type, info.Name)))
                 {
                     ctx.RemoveColumn(info.Name, true);
@@ -637,9 +632,9 @@ namespace Microsoft.ML.Data
         private protected virtual bool SaveAsOnnxCore(OnnxContext ctx, int iinfo, ColInfo info, string srcVariableName,
             string dstVariableName) => false;
 
-        public sealed override Schema OutputSchema => _bindings.AsSchema;
+        public sealed override DataViewSchema OutputSchema => _bindings.AsSchema;
 
-        ITransposeSchema ITransposeDataView.TransposeSchema => _bindings;
+        VectorType ITransposeDataView.GetSlotType(int col) => _bindings.GetSlotType(col);
 
         /// <summary>
         /// Return the (destination) column index for the indicated added column.
@@ -650,7 +645,7 @@ namespace Microsoft.ML.Data
             return _bindings.MapIinfoToCol(iinfo);
         }
 
-        protected abstract ColumnType GetColumnTypeCore(int iinfo);
+        protected abstract DataViewType GetColumnTypeCore(int iinfo);
 
         protected virtual VectorType GetSlotTypeCore(int iinfo)
         {
@@ -676,9 +671,9 @@ namespace Microsoft.ML.Data
         /// otherwise it should be set to a delegate to be invoked by the cursor's Dispose method. It's best
         /// for this action to be idempotent - calling it multiple times should be equivalent to calling it once.
         /// </summary>
-        protected abstract Delegate GetGetterCore(IChannel ch, Row input, int iinfo, out Action disposer);
+        protected abstract Delegate GetGetterCore(IChannel ch, DataViewRow input, int iinfo, out Action disposer);
 
-        protected ValueGetter<T> GetSrcGetter<T>(Row input, int iinfo)
+        protected ValueGetter<T> GetSrcGetter<T>(DataViewRow input, int iinfo)
         {
             Host.AssertValue(input);
             Host.Assert(0 <= iinfo && iinfo < Infos.Length);
@@ -687,12 +682,12 @@ namespace Microsoft.ML.Data
             return input.GetGetter<T>(src);
         }
 
-        protected Delegate GetSrcGetter(ColumnType typeDst, Row row, int iinfo)
+        protected Delegate GetSrcGetter(DataViewType typeDst, DataViewRow row, int iinfo)
         {
             Host.CheckValue(typeDst, nameof(typeDst));
             Host.CheckValue(row, nameof(row));
 
-            Func<Row, int, ValueGetter<int>> del = GetSrcGetter<int>;
+            Func<DataViewRow, int, ValueGetter<int>> del = GetSrcGetter<int>;
             var methodInfo = del.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(typeDst.RawType);
             return (Delegate)methodInfo.Invoke(this, new object[] { row, iinfo });
         }
@@ -720,40 +715,42 @@ namespace Microsoft.ML.Data
             return _bindings.AnyNewColumnsActive(predicate);
         }
 
-        protected override RowCursor GetRowCursorCore(Func<int, bool> predicate, Random rand = null)
+        protected override DataViewRowCursor GetRowCursorCore(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null)
         {
-            Host.AssertValue(predicate, "predicate");
             Host.AssertValueOrNull(rand);
 
-            var inputPred = _bindings.GetDependencies(predicate);
-            var active = _bindings.GetActive(predicate);
-            var input = Source.GetRowCursor(inputPred, rand);
+            Func<int, bool> needCol = c => columnsNeeded == null ? false : columnsNeeded.Any(x => x.Index == c);
+            var active = _bindings.GetActive(needCol);
+
+            var inputCols = _bindings.GetDependencies(columnsNeeded);
+            var input = Source.GetRowCursor(inputCols, rand);
             return new Cursor(Host, this, input, active);
         }
 
-        public sealed override RowCursor[] GetRowCursorSet(Func<int, bool> predicate, int n, Random rand = null)
+        public sealed override DataViewRowCursor[] GetRowCursorSet(IEnumerable<DataViewSchema.Column> columnsNeeded, int n, Random rand = null)
         {
-            Host.CheckValue(predicate, nameof(predicate));
             Host.CheckValueOrNull(rand);
 
-            var inputPred = _bindings.GetDependencies(predicate);
-            var active = _bindings.GetActive(predicate);
-            var inputs = Source.GetRowCursorSet(inputPred, n, rand);
+            var predicate = RowCursorUtils.FromColumnsToPredicate(columnsNeeded, OutputSchema);
+
+            var inputCols = _bindings.GetDependencies(columnsNeeded);
+            var inputs = Source.GetRowCursorSet(inputCols, n, rand);
             Host.AssertNonEmpty(inputs);
 
             if (inputs.Length == 1 && n > 1 && WantParallelCursors(predicate))
                 inputs = DataViewUtils.CreateSplitCursors(Host, inputs[0], n);
             Host.AssertNonEmpty(inputs);
 
-            var cursors = new RowCursor[inputs.Length];
+            var cursors = new DataViewRowCursor[inputs.Length];
+            var active = _bindings.GetActive(predicate);
             for (int i = 0; i < inputs.Length; i++)
                 cursors[i] = new Cursor(Host, this, inputs[i], active);
             return cursors;
         }
 
         /// <summary>
-        /// Returns a standard exception for responding to an invalid call to <see cref="GetSlotCursor"/>,
-        /// on a column that is not transposable.
+        /// Returns a standard exception for responding to an invalid call to <see cref="ITransposeDataView.GetSlotCursor"/>
+        /// implementation in <see langword="this"/> on a column that is not transposable.
         /// </summary>
         protected Exception ExceptGetSlotCursor(int col)
         {
@@ -762,7 +759,7 @@ namespace Microsoft.ML.Data
                 OutputSchema[col].Name);
         }
 
-        public SlotCursor GetSlotCursor(int col)
+        SlotCursor ITransposeDataView.GetSlotCursor(int col)
         {
             Host.CheckParam(0 <= col && col < _bindings.ColumnCount, nameof(col));
 
@@ -787,7 +784,8 @@ namespace Microsoft.ML.Data
         /// null for all new columns, and so reaching this is only possible if there is a
         /// bug.
         /// </summary>
-        protected virtual SlotCursor GetSlotCursorCore(int iinfo)
+        [BestFriend]
+        internal virtual SlotCursor GetSlotCursorCore(int iinfo)
         {
             Host.Assert(false);
             throw Host.ExceptNotImpl("Data view indicated it could transpose a column, but apparently it could not");
@@ -798,12 +796,10 @@ namespace Microsoft.ML.Data
             return _bindings.MapColumnIndex(out isSrc, col);
         }
 
-        protected override Func<int, bool> GetDependenciesCore(Func<int, bool> predicate)
-        {
-            return _bindings.GetDependencies(predicate);
-        }
+        protected override IEnumerable<DataViewSchema.Column> GetDependenciesCore(IEnumerable<DataViewSchema.Column> dependingColumns)
+            => _bindings.GetDependencies(dependingColumns);
 
-        protected override Delegate[] CreateGetters(Row input, Func<int, bool> active, out Action disposer)
+        protected override Delegate[] CreateGetters(DataViewRow input, Func<int, bool> active, out Action disposer)
         {
             Func<int, bool> activeInfos =
                 iinfo =>
@@ -837,7 +833,7 @@ namespace Microsoft.ML.Data
             private readonly Action _disposer;
             private bool _disposed;
 
-            public Cursor(IChannelProvider provider, OneToOneTransformBase parent, RowCursor input, bool[] active)
+            public Cursor(IChannelProvider provider, OneToOneTransformBase parent, DataViewRowCursor input, bool[] active)
                 : base(provider, input)
             {
                 Ch.AssertValue(parent);
@@ -872,7 +868,7 @@ namespace Microsoft.ML.Data
                 base.Dispose(disposing);
             }
 
-            public override Schema Schema => _bindings.AsSchema;
+            public override DataViewSchema Schema => _bindings.AsSchema;
 
             public override ValueGetter<TValue> GetGetter<TValue>(int col)
             {
@@ -897,53 +893,53 @@ namespace Microsoft.ML.Data
             }
         }
 
-        protected static string TestIsText(ColumnType type)
+        protected static string TestIsText(DataViewType type)
         {
-            if (type is TextType)
+            if (type is TextDataViewType)
                 return null;
             return "Expected Text type";
         }
 
-        protected static string TestIsTextItem(ColumnType type)
+        protected static string TestIsTextItem(DataViewType type)
         {
-            if (type.GetItemType() is TextType)
+            if (type.GetItemType() is TextDataViewType)
                 return null;
             return "Expected Text type";
         }
 
-        protected static string TestIsTextVector(ColumnType type)
+        protected static string TestIsTextVector(DataViewType type)
         {
-            if (type is VectorType vectorType && vectorType.ItemType is TextType)
+            if (type is VectorType vectorType && vectorType.ItemType is TextDataViewType)
                 return null;
             return "Expected vector of Text type";
         }
 
-        protected static string TestIsFloatItem(ColumnType type)
+        protected static string TestIsFloatItem(DataViewType type)
         {
-            if (type.GetItemType() == NumberType.Float)
+            if (type.GetItemType() == NumberDataViewType.Single)
                 return null;
             return "Expected R4 or a vector of R4";
         }
 
-        protected static string TestIsFloatVector(ColumnType type)
+        protected static string TestIsFloatVector(DataViewType type)
         {
-            if (type is VectorType vectorType && vectorType.ItemType == NumberType.Float)
+            if (type is VectorType vectorType && vectorType.ItemType == NumberDataViewType.Single)
                 return null;
 
             return "Expected Float vector";
         }
 
-        protected static string TestIsKnownSizeFloatVector(ColumnType type)
+        protected static string TestIsKnownSizeFloatVector(DataViewType type)
         {
             if (type is VectorType vectorType
                 && vectorType.IsKnownSize
-                && vectorType.ItemType == NumberType.Float)
+                && vectorType.ItemType == NumberDataViewType.Single)
                 return null;
 
             return "Expected Float vector of known size";
         }
 
-        protected static string TestIsKey(ColumnType type)
+        protected static string TestIsKey(DataViewType type)
         {
             if (type.GetItemType().GetKeyCount() > 0)
                 return null;

@@ -7,14 +7,14 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Data;
 using Microsoft.ML.Internal.Utilities;
-using Microsoft.ML.Model;
-using Microsoft.ML.Model.Onnx;
+using Microsoft.ML.Model.OnnxConverter;
 using Microsoft.ML.Model.Pfa;
 using Newtonsoft.Json.Linq;
 
-namespace Microsoft.ML.Transforms.Normalizers
+namespace Microsoft.ML.Transforms
 {
     // !!! WARNING !!!
     // This file contains the Double version for normalizers and is almost identical with NormalizeColumnSng.cs
@@ -22,7 +22,7 @@ namespace Microsoft.ML.Transforms.Normalizers
     // appropriate changes to the other.
     using TFloat = Double;
 
-    public static partial class AffineNormSerializationUtils
+    internal static partial class AffineNormSerializationUtils
     {
         public static void SaveModel(ModelSaveContext ctx,
             int numFeatures, int[] indices, TFloat[] scales, TFloat[] offsets, bool saveText = false)
@@ -190,7 +190,7 @@ namespace Microsoft.ML.Transforms.Normalizers
         }
     }
 
-    public static partial class BinNormSerializationUtils
+    internal static partial class BinNormSerializationUtils
     {
         public static void SaveModel(ModelSaveContext ctx, TFloat[][] binUpperBounds, bool saveText = false)
         {
@@ -261,7 +261,7 @@ namespace Microsoft.ML.Transforms.Normalizers
         }
     }
 
-    public static partial class CdfNormSerializationUtils
+    internal static partial class CdfNormSerializationUtils
     {
         public static void SaveModel(ModelSaveContext ctx, bool useLog, TFloat[] mean, TFloat[] stddev)
         {
@@ -315,7 +315,7 @@ namespace Microsoft.ML.Transforms.Normalizers
     /// It tracks min, max, number of non-sparse values (vCount) and number of ProcessValue() calls (trainCount).
     /// NaNs are ignored when updating min and max.
     /// </summary>
-    public sealed class MinMaxDblAggregator : IColumnAggregator<VBuffer<TFloat>>
+    internal sealed class MinMaxDblAggregator : IColumnAggregator<VBuffer<TFloat>>
     {
         private readonly TFloat[] _min;
         private readonly TFloat[] _max;
@@ -408,7 +408,7 @@ namespace Microsoft.ML.Transforms.Normalizers
     /// the number of NaNs and the number of non-zero elements.
     /// Uses the algorithm described here: https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Online_algorithm
     /// </summary>
-    public sealed class MeanVarDblAggregator
+    internal sealed class MeanVarDblAggregator
     {
         private readonly bool _useLog;
         private readonly Double[] _mean;
@@ -516,7 +516,7 @@ namespace Microsoft.ML.Transforms.Normalizers
         }
     }
 
-    public sealed partial class NormalizeTransform
+    internal sealed partial class NormalizeTransform
     {
         internal abstract partial class AffineColumnFunction
         {
@@ -540,7 +540,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                     {
                     }
 
-                    public static new ImplOne Create(ModelLoadContext ctx, IHost host, ColumnType typeSrc)
+                    public static new ImplOne Create(ModelLoadContext ctx, IHost host, DataViewType typeSrc)
                     {
                         host.Check(typeSrc.RawType == typeof(TFloat), "The column type must be R8.");
                         List<int> nz = null;
@@ -567,7 +567,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                         value = (input - Offset) * Scale;
                     }
 
-                    public override void Save(ModelSaveContext ctx)
+                    private protected override void SaveModel(ModelSaveContext ctx)
                     {
                         AffineNormSerializationUtils.SaveModel(ctx, 1, null, new[] { Scale }, new[] { Offset }, saveText: true);
                     }
@@ -582,7 +582,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                         return true;
                     }
 
-                    public override Delegate GetGetter(Row input, int icol)
+                    public override Delegate GetGetter(DataViewRow input, int icol)
                     {
                         var getSrc = input.GetGetter<TFloat>(icol);
                         ValueGetter<TFloat> del =
@@ -627,7 +627,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                         return new ImplVec(host, scales, offsets, (offsets != null && nz.Count < cv / 2) ? nz.ToArray() : null);
                     }
 
-                    public override void Save(ModelSaveContext ctx)
+                    private protected override void SaveModel(ModelSaveContext ctx)
                     {
                         AffineNormSerializationUtils.SaveModel(ctx, Scale.Length, null, Scale, Offset, saveText: true);
                     }
@@ -658,7 +658,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                         return true;
                     }
 
-                    public override Delegate GetGetter(Row input, int icol)
+                    public override Delegate GetGetter(DataViewRow input, int icol)
                     {
                         var getSrc = input.GetGetter<VBuffer<TFloat>>(icol);
                         var bldr = new BufferBuilder<TFloat>(R8Adder.Instance);
@@ -865,7 +865,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                     {
                     }
 
-                    public static new ImplOne Create(ModelLoadContext ctx, IHost host, ColumnType typeSrc)
+                    public static new ImplOne Create(ModelLoadContext ctx, IHost host, DataViewType typeSrc)
                     {
                         host.Check(typeSrc.RawType == typeof(TFloat), "The column type must be R8.");
                         host.CheckValue(ctx, nameof(ctx));
@@ -891,7 +891,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                         value = CdfUtils.Cdf(val, Mean, Stddev);
                     }
 
-                    public override void Save(ModelSaveContext ctx)
+                    private protected override void SaveModel(ModelSaveContext ctx)
                     {
                         Contracts.AssertValue(ctx);
                         ctx.CheckAtModel();
@@ -900,7 +900,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                         CdfNormSerializationUtils.SaveModel(ctx, UseLog, new[] { Mean }, new[] { Stddev });
                     }
 
-                    public override Delegate GetGetter(Row input, int icol)
+                    public override Delegate GetGetter(DataViewRow input, int icol)
                     {
                         if (Stddev <= TFloat.Epsilon)
                         {
@@ -946,7 +946,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                         return new ImplVec(host, mean, stddev, useLog);
                     }
 
-                    public override void Save(ModelSaveContext ctx)
+                    private protected override void SaveModel(ModelSaveContext ctx)
                     {
                         Contracts.AssertValue(ctx);
                         ctx.CheckAtModel();
@@ -955,7 +955,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                         CdfNormSerializationUtils.SaveModel(ctx, UseLog, Mean, Stddev);
                     }
 
-                    public override Delegate GetGetter(Row input, int icol)
+                    public override Delegate GetGetter(DataViewRow input, int icol)
                     {
                         var getSrc = input.GetGetter<VBuffer<TFloat>>(icol);
                         var bldr = new BufferBuilder<TFloat>(R8Adder.Instance);
@@ -1048,7 +1048,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                         Host.Assert(0 <= _offset & _offset <= 1);
                     }
 
-                    public static new ImplOne Create(ModelLoadContext ctx, IHost host, ColumnType typeSrc)
+                    public static new ImplOne Create(ModelLoadContext ctx, IHost host, DataViewType typeSrc)
                     {
                         host.Check(typeSrc.RawType == typeof(TFloat), "The column type must be R8.");
                         host.CheckValue(ctx, nameof(ctx));
@@ -1070,7 +1070,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                         return new ImplOne(host, binUpperBounds[0], fixZero);
                     }
 
-                    public override void Save(ModelSaveContext ctx)
+                    private protected override void SaveModel(ModelSaveContext ctx)
                     {
                         Contracts.AssertValue(ctx);
                         ctx.CheckAtModel();
@@ -1084,7 +1084,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                             c => BinNormSerializationUtils.SaveModel(c, new[] { _binUpperBounds }, saveText: true));
                     }
 
-                    public override Delegate GetGetter(Row input, int icol)
+                    public override Delegate GetGetter(DataViewRow input, int icol)
                     {
                         var getSrc = input.GetGetter<TFloat>(icol);
                         ValueGetter<TFloat> del =
@@ -1156,7 +1156,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                         return new ImplVec(host, binUpperBounds, fixZero);
                     }
 
-                    public override void Save(ModelSaveContext ctx)
+                    private protected override void SaveModel(ModelSaveContext ctx)
                     {
                         Contracts.AssertValue(ctx);
                         ctx.CheckAtModel();
@@ -1169,7 +1169,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                         ctx.SaveSubModel("BinNormalizer", c => BinNormSerializationUtils.SaveModel(c, _binUpperBounds, saveText: true));
                     }
 
-                    public override Delegate GetGetter(Row input, int icol)
+                    public override Delegate GetGetter(DataViewRow input, int icol)
                     {
                         var getSrc = input.GetGetter<VBuffer<TFloat>>(icol);
                         var bldr = new BufferBuilder<TFloat>(R8Adder.Instance);
@@ -1426,7 +1426,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                 {
                 }
 
-                public static IColumnFunctionBuilder Create(NormalizingEstimator.MinMaxColumn column, IHost host, ColumnType srcType,
+                public static IColumnFunctionBuilder Create(NormalizingEstimator.MinMaxColumnOptions column, IHost host, DataViewType srcType,
                     ValueGetter<TFloat> getter)
                 {
                     host.CheckUserArg(column.MaxTrainingExamples > 1, nameof(column.MaxTrainingExamples), "Must be greater than 1");
@@ -1476,7 +1476,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                 {
                 }
 
-                public static IColumnFunctionBuilder Create(NormalizingEstimator.MinMaxColumn column, IHost host, VectorType srcType,
+                public static IColumnFunctionBuilder Create(NormalizingEstimator.MinMaxColumnOptions column, IHost host, VectorType srcType,
                     ValueGetter<VBuffer<TFloat>> getter)
                 {
                     host.CheckUserArg(column.MaxTrainingExamples > 1, nameof(column.MaxTrainingExamples), "Must be greater than 1");
@@ -1538,14 +1538,14 @@ namespace Microsoft.ML.Transforms.Normalizers
                     _buffer = new VBuffer<TFloat>(1, new TFloat[1]);
                 }
 
-                public static IColumnFunctionBuilder Create(NormalizingEstimator.MeanVarColumn column, IHost host, ColumnType srcType,
+                public static IColumnFunctionBuilder Create(NormalizingEstimator.MeanVarColumnOptions column, IHost host, DataViewType srcType,
                     ValueGetter<TFloat> getter)
                 {
                     host.CheckUserArg(column.MaxTrainingExamples > 1, nameof(column.MaxTrainingExamples), "Must be greater than 1");
                     return new MeanVarOneColumnFunctionBuilder(host, column.MaxTrainingExamples, column.FixZero, getter, false, column.UseCdf);
                 }
 
-                public static IColumnFunctionBuilder Create(NormalizingEstimator.LogMeanVarColumn column, IHost host, ColumnType srcType,
+                public static IColumnFunctionBuilder Create(NormalizingEstimator.LogMeanVarColumnOptions column, IHost host, DataViewType srcType,
                     ValueGetter<TFloat> getter)
                 {
                     var lim = column.MaxTrainingExamples;
@@ -1612,7 +1612,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                     _useCdf = useCdf;
                 }
 
-                public static IColumnFunctionBuilder Create(NormalizingEstimator.MeanVarColumn column, IHost host, VectorType srcType,
+                public static IColumnFunctionBuilder Create(NormalizingEstimator.MeanVarColumnOptions column, IHost host, VectorType srcType,
                     ValueGetter<VBuffer<TFloat>> getter)
                 {
                     host.CheckUserArg(column.MaxTrainingExamples > 1, nameof(column.MaxTrainingExamples), "Must be greater than 1");
@@ -1620,7 +1620,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                     return new MeanVarVecColumnFunctionBuilder(host, cv, column.MaxTrainingExamples, column.FixZero, getter, false, column.UseCdf);
                 }
 
-                public static IColumnFunctionBuilder Create(NormalizingEstimator.LogMeanVarColumn column, IHost host, VectorType srcType,
+                public static IColumnFunctionBuilder Create(NormalizingEstimator.LogMeanVarColumnOptions column, IHost host, VectorType srcType,
                     ValueGetter<VBuffer<TFloat>> getter)
                 {
                     var lim = column.MaxTrainingExamples;
@@ -1728,7 +1728,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                     _values = new List<TFloat>();
                 }
 
-                public static IColumnFunctionBuilder Create(NormalizingEstimator.BinningColumn column, IHost host, ColumnType srcType,
+                public static IColumnFunctionBuilder Create(NormalizingEstimator.BinningColumnOptions column, IHost host, DataViewType srcType,
                     ValueGetter<TFloat> getter)
                 {
                     var lim = column.MaxTrainingExamples;
@@ -1777,7 +1777,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                     }
                 }
 
-                public static IColumnFunctionBuilder Create(NormalizingEstimator.BinningColumn column, IHost host, VectorType srcType,
+                public static IColumnFunctionBuilder Create(NormalizingEstimator.BinningColumnOptions column, IHost host, VectorType srcType,
                     ValueGetter<VBuffer<TFloat>> getter)
                 {
                     var lim = column.MaxTrainingExamples;
@@ -1841,7 +1841,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                 private readonly int _numBins;
                 private readonly int _minBinSize;
 
-                private SupervisedBinOneColumnFunctionBuilder(IHost host, long lim, bool fix, int numBins, int minBinSize, int valueColumnId, int labelColumnId, Row dataRow)
+                private SupervisedBinOneColumnFunctionBuilder(IHost host, long lim, bool fix, int numBins, int minBinSize, int valueColumnId, int labelColumnId, DataViewRow dataRow)
                     : base(host, lim, valueColumnId, labelColumnId, dataRow)
                 {
                     _fix = fix;
@@ -1861,7 +1861,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                     return BinColumnFunction.Create(Host, binUpperBounds, _fix);
                 }
 
-                public static IColumnFunctionBuilder Create(NormalizingEstimator.SupervisedBinningColumn column, IHost host, int valueColumnId, int labelColumnId, Row dataRow)
+                public static IColumnFunctionBuilder Create(NormalizingEstimator.SupervisedBinningColumOptions column, IHost host, int valueColumnId, int labelColumnId, DataViewRow dataRow)
                 {
                     var lim = column.MaxTrainingExamples;
                     host.CheckUserArg(lim > 1, nameof(column.MaxTrainingExamples), "Must be greater than 1");
@@ -1879,7 +1879,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                 private readonly int _numBins;
                 private readonly int _minBinSize;
 
-                private SupervisedBinVecColumnFunctionBuilder(IHost host, long lim, bool fix, int numBins, int minBinSize, int valueColumnId, int labelColumnId, Row dataRow)
+                private SupervisedBinVecColumnFunctionBuilder(IHost host, long lim, bool fix, int numBins, int minBinSize, int valueColumnId, int labelColumnId, DataViewRow dataRow)
                     : base(host, lim, valueColumnId, labelColumnId, dataRow)
                 {
                     _fix = fix;
@@ -1901,7 +1901,7 @@ namespace Microsoft.ML.Transforms.Normalizers
                     return BinColumnFunction.Create(Host, binUpperBounds, _fix);
                 }
 
-                public static IColumnFunctionBuilder Create(NormalizingEstimator.SupervisedBinningColumn column, IHost host, int valueColumnId, int labelColumnId, Row dataRow)
+                public static IColumnFunctionBuilder Create(NormalizingEstimator.SupervisedBinningColumOptions column, IHost host, int valueColumnId, int labelColumnId, DataViewRow dataRow)
                 {
                     var lim = column.MaxTrainingExamples;
                     host.CheckUserArg(lim > 1, nameof(column.MaxTrainingExamples), "Must be greater than 1");

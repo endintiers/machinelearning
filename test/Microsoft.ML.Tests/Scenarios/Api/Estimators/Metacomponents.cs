@@ -6,7 +6,6 @@ using Microsoft.ML.Data;
 using Microsoft.ML.RunTests;
 using Microsoft.ML.Trainers;
 using Microsoft.ML.Transforms;
-using Microsoft.ML.Transforms.Conversions;
 using Xunit;
 
 namespace Microsoft.ML.Tests.Scenarios.Api
@@ -22,14 +21,15 @@ namespace Microsoft.ML.Tests.Scenarios.Api
         public void Metacomponents()
         {
             var ml = new MLContext();
-            var data = ml.Data.ReadFromTextFile<IrisData>(GetDataPath(TestDatasets.irisData.trainFilename), separatorChar: ',');
+            var data = ml.Data.LoadFromTextFile<IrisData>(GetDataPath(TestDatasets.irisData.trainFilename), separatorChar: ',');
 
-            var sdcaTrainer = ml.BinaryClassification.Trainers.StochasticDualCoordinateAscent("Label", "Features", advancedSettings: (s) => { s.MaxIterations = 100; s.Shuffle = true; s.NumThreads = 1; });
+            var sdcaTrainer = ml.BinaryClassification.Trainers.StochasticDualCoordinateAscentNonCalibrated(
+                new SdcaNonCalibratedBinaryTrainer.Options { MaxIterations = 100, Shuffle = true, NumThreads = 1, });
 
             var pipeline = new ColumnConcatenatingEstimator (ml, "Features", "SepalLength", "SepalWidth", "PetalLength", "PetalWidth")
-                .Append(new ValueToKeyMappingEstimator(ml, "Label"), TransformerScope.TrainTest)
-                .Append(new Ova(ml, sdcaTrainer))
-                .Append(new KeyToValueMappingEstimator(ml, "PredictedLabel"));
+                .Append(ml.Transforms.Conversion.MapValueToKey("Label"), TransformerScope.TrainTest)
+                .Append(ml.MulticlassClassification.Trainers.OneVersusAll(sdcaTrainer))
+                .Append(ml.Transforms.Conversion.MapKeyToValue(("PredictedLabel")));
 
             var model = pipeline.Fit(data);
         }

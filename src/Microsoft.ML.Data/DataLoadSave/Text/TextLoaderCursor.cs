@@ -7,6 +7,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Internal.Utilities;
 
 namespace Microsoft.ML.Data
@@ -132,7 +134,7 @@ namespace Microsoft.ML.Data
                 }
             }
 
-            public static RowCursor Create(TextLoader parent, IMultiStreamSource files, bool[] active)
+            public static DataViewRowCursor Create(TextLoader parent, IMultiStreamSource files, bool[] active)
             {
                 // Note that files is allowed to be empty.
                 Contracts.AssertValue(parent);
@@ -149,7 +151,7 @@ namespace Microsoft.ML.Data
                 return new Cursor(parent, stats, active, reader, srcNeeded, cthd);
             }
 
-            public static RowCursor[] CreateSet(TextLoader parent, IMultiStreamSource files, bool[] active, int n)
+            public static DataViewRowCursor[] CreateSet(TextLoader parent, IMultiStreamSource files, bool[] active, int n)
             {
                 // Note that files is allowed to be empty.
                 Contracts.AssertValue(parent);
@@ -164,9 +166,9 @@ namespace Microsoft.ML.Data
                 var reader = new LineReader(files, BatchSize, 100, parent.HasHeader, parent._maxRows, cthd);
                 var stats = new ParseStats(parent._host, cthd);
                 if (cthd <= 1)
-                    return new RowCursor[1] { new Cursor(parent, stats, active, reader, srcNeeded, 1) };
+                    return new DataViewRowCursor[1] { new Cursor(parent, stats, active, reader, srcNeeded, 1) };
 
-                var cursors = new RowCursor[cthd];
+                var cursors = new DataViewRowCursor[cthd];
                 try
                 {
                     for (int i = 0; i < cursors.Length; i++)
@@ -193,13 +195,13 @@ namespace Microsoft.ML.Data
                 }
             }
 
-            public override ValueGetter<RowId> GetIdGetter()
+            public override ValueGetter<DataViewRowId> GetIdGetter()
             {
                 return
-                    (ref RowId val) =>
+                    (ref DataViewRowId val) =>
                     {
-                        Ch.Check(IsGood, "Cannot call ID getter in current state");
-                        val = new RowId((ulong)_total, 0);
+                        Ch.Check(IsGood, RowCursorUtils.FetchValueStateError);
+                        val = new DataViewRowId((ulong)_total, 0);
                     };
             }
 
@@ -267,7 +269,7 @@ namespace Microsoft.ML.Data
                 return sb.ToString();
             }
 
-            public override Schema Schema => _bindings.OutputSchema;
+            public override DataViewSchema Schema => _bindings.OutputSchema;
 
             protected override void Dispose(bool disposing)
             {
@@ -285,8 +287,6 @@ namespace Microsoft.ML.Data
 
             protected override bool MoveNextCore()
             {
-                Contracts.Assert(State != CursorState.Done);
-
                 if (_ator.MoveNext())
                 {
                     _rows.Index = _ator.Current;
@@ -395,8 +395,8 @@ namespace Microsoft.ML.Data
 
                 // The line reader can be referenced by multiple workers. This is the reference count.
                 private int _cref;
-                private BlockingCollection<LineBatch> _queue;
-                private Thread _thdRead;
+                private BlockingQueue<LineBatch> _queue;
+                private Task _thdRead;
                 private volatile bool _abort;
 
                 public LineReader(IMultiStreamSource files, int batchSize, int bufSize, bool hasHeader, long limit, int cref)
@@ -415,9 +415,8 @@ namespace Microsoft.ML.Data
                     _files = files;
                     _cref = cref;
 
-                    _queue = new BlockingCollection<LineBatch>(bufSize);
-                    _thdRead = Utils.CreateBackgroundThread(ThreadProc);
-                    _thdRead.Start();
+                    _queue = new BlockingQueue<LineBatch>(bufSize);
+                    _thdRead = Utils.RunOnBackgroundThread(ThreadProc);
                 }
 
                 public void Release()
@@ -431,7 +430,7 @@ namespace Microsoft.ML.Data
                     if (_thdRead != null)
                     {
                         _abort = true;
-                        _thdRead.Join();
+                        _thdRead.Wait();
                         _thdRead = null;
                     }
 
@@ -639,9 +638,9 @@ namespace Microsoft.ML.Data
                 private readonly OrderedWaiter _waiterPublish;
 
                 // A small capacity blocking collection that the main cursor thread consumes.
-                private readonly BlockingCollection<RowBatch> _queue;
+                private readonly BlockingQueue<RowBatch> _queue;
 
-                private readonly Thread[] _threads;
+                private readonly Task[] _threads;
 
                 // Number of threads still running.
                 private int _threadsRunning;
@@ -674,15 +673,14 @@ namespace Microsoft.ML.Data
 
                     // The size limit here ensures that worker threads are never writing to
                     // a range that is being served up by the cursor.
-                    _queue = new BlockingCollection<RowBatch>(2);
+                    _queue = new BlockingQueue<RowBatch>(2);
 
-                    _threads = new Thread[cthd];
+                    _threads = new Task[cthd];
                     _threadsRunning = cthd;
 
                     for (int tid = 0; tid < _threads.Length; tid++)
                     {
-                        var thd = _threads[tid] = Utils.CreateBackgroundThread(ThreadProc);
-                        thd.Start(tid);
+                        _threads[tid] = Utils.RunOnBackgroundThread(ThreadProc, tid);
                     }
                 }
 
@@ -690,8 +688,7 @@ namespace Microsoft.ML.Data
                 {
                     // Signal all the threads to shut down and wait for them.
                     Quit();
-                    for (int i = 0; i < _threads.Length; i++)
-                        _threads[i].Join();
+                    Task.WaitAll(_threads);
                 }
 
                 private void Quit()

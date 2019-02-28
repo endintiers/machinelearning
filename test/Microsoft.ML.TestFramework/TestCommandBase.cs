@@ -9,11 +9,13 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Command;
 using Microsoft.ML.Data;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Model;
 using Microsoft.ML.TestFramework;
+using Microsoft.ML.TestFramework.Attributes;
 using Microsoft.ML.Tools;
 using Xunit;
 using Xunit.Abstractions;
@@ -439,6 +441,11 @@ namespace Microsoft.ML.RunTests
             return TestCoreCore(ctx, cmdName, dataPath, PathArgument.Usage.Loader, modelPath, null, null, extraArgs, toCompare);
         }
 
+        protected bool TestInCore(RunContextBase ctx, string cmdName, string dataPath, OutputPath modelPath, string extraArgs, int digitsOfPrecision = DigitsOfPrecision, params PathArgument[] toCompare)
+        {
+            return TestCoreCore(ctx, cmdName, dataPath, PathArgument.Usage.Loader, modelPath, null, null, extraArgs, digitsOfPrecision, toCompare);
+        }
+
         /// <summary>
         /// Run one command loading the datafile loaded as defined by a model file, and comparing
         /// against standard output. This utility method will both load and save a model.
@@ -516,7 +523,7 @@ namespace Microsoft.ML.RunTests
                     out pipe, rep, ModelFileUtils.DirDataLoaderModel, files);
             }
 
-            using (var c = pipe.GetRowCursor(col => true))
+            using (var c = pipe.GetRowCursorForAllColumns())
                 tmp = CheckSameValues(c, pipe, true, true, true);
             Check(tmp, "Single value same failed");
         }
@@ -647,6 +654,11 @@ namespace Microsoft.ML.RunTests
         protected bool TestInCore(string cmdName, string dataPath, OutputPath modelPath, string extraArgs, params PathArgument[] toCompare)
         {
             return TestInCore(Params, cmdName, dataPath, modelPath, extraArgs, toCompare);
+        }
+
+        protected bool TestInCore(string cmdName, string dataPath, OutputPath modelPath, string extraArgs, int digitsOfPrecision = DigitsOfPrecision, params PathArgument[] toCompare)
+        {
+            return TestInCore(Params, cmdName, dataPath, modelPath, extraArgs, digitsOfPrecision, toCompare);
         }
 
         protected bool TestInOutCore(string cmdName, string dataPath, OutputPath modelPath, string extraArgs, params PathArgument[] toCompare)
@@ -837,7 +849,7 @@ namespace Microsoft.ML.RunTests
             Done();
         }
 
-        [ConditionalFact(typeof(Environment), nameof(Environment.Is64BitProcess))] // x86 output differs from Baseline
+        [X64Fact("x86 output differs from Baseline")]
         public void CommandCrossValidationKeyLabelWithFloatKeyValues()
         {
             RunMTAThread(() =>
@@ -1080,12 +1092,12 @@ namespace Microsoft.ML.RunTests
 
             string trainData = GetDataPath("adult.tiny.with-schema.txt");
             OutputPath trainModel = ModelPath();
-            TestCore("train", trainData, loaderArgs, extraArgs);
+            TestCore("train", trainData, loaderArgs, extraArgs, digitsOfPrecision: 5);
 
             _step++;
             // Save model summary.
             OutputPath modelSummary = CreateOutputPath("summary.txt");
-            TestInCore("savemodel", null, trainModel, "", modelSummary.Arg("sum"));
+            TestInCore("savemodel", null, trainModel, "", digitsOfPrecision: 4, modelSummary.Arg("sum"));
 
             Done();
         }
@@ -1169,7 +1181,7 @@ namespace Microsoft.ML.RunTests
             Done();
         }
 
-        [ConditionalFact(typeof(BaseTestBaseline), nameof(BaseTestBaseline.LessThanNetCore30OrNotNetCore))] // netcore3.0 output differs from Baseline
+        [LessThanNetCore30OrNotNetCoreFact("netcoreapp3.0 output differs from Baseline")]
         [TestCategory(Cat), TestCategory("Multiclass"), TestCategory("Logistic Regression")]
         public void CommandTrainMlrWithStats()
         {

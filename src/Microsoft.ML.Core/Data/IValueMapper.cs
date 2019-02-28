@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using Microsoft.Data.DataView;
+
 namespace Microsoft.ML.Data
 {
     /// <summary>
@@ -27,8 +29,8 @@ namespace Microsoft.ML.Data
     [BestFriend]
     internal interface IValueMapper
     {
-        ColumnType InputType { get; }
-        ColumnType OutputType { get; }
+        DataViewType InputType { get; }
+        DataViewType OutputType { get; }
 
         /// <summary>
         /// Get a delegate used for mapping from input to output values. Note that the delegate
@@ -47,7 +49,7 @@ namespace Microsoft.ML.Data
     [BestFriend]
     internal interface IValueMapperDist : IValueMapper
     {
-        ColumnType DistType { get; }
+        DataViewType DistType { get; }
 
         /// <summary>
         /// Get a delegate used for mapping from input to output values. Note that the delegate

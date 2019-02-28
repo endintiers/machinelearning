@@ -3,9 +3,7 @@
 // See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
-using Microsoft.ML.Core.Data;
-using Microsoft.ML.StaticPipe.Runtime;
-using Microsoft.ML.Transforms.Projections;
+using Microsoft.ML.Transforms;
 
 namespace Microsoft.ML.StaticPipe
 {
@@ -44,9 +42,9 @@ namespace Microsoft.ML.StaticPipe
             {
                 Contracts.Assert(toOutput.Length == 1);
 
-                var pairs = new List<(string input, string output)>();
+                var pairs = new List<(string outputColumnName, string inputColumnName)>();
                 foreach (var outCol in toOutput)
-                    pairs.Add((inputNames[((OutPipelineColumn)outCol).Input], outputNames[outCol]));
+                    pairs.Add((outputNames[outCol], inputNames[((OutPipelineColumn)outCol).Input]));
 
                 return new LpNormalizingEstimator(env, pairs.ToArray(), _normKind, _subMean);
             }

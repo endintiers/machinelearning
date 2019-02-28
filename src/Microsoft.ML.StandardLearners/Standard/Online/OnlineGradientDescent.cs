@@ -2,19 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
-using Microsoft.ML.Core.Data;
 using Microsoft.ML.Data;
 using Microsoft.ML.EntryPoints;
 using Microsoft.ML.Internal.Internallearn;
-using Microsoft.ML.Learners;
+using Microsoft.ML.Model;
 using Microsoft.ML.Numeric;
-using Microsoft.ML.Trainers.Online;
-using Microsoft.ML.Training;
+using Microsoft.ML.Trainers;
 
-[assembly: LoadableClass(OnlineGradientDescentTrainer.Summary, typeof(OnlineGradientDescentTrainer), typeof(OnlineGradientDescentTrainer.Arguments),
+[assembly: LoadableClass(OnlineGradientDescentTrainer.Summary, typeof(OnlineGradientDescentTrainer), typeof(OnlineGradientDescentTrainer.Options),
     new[] { typeof(SignatureRegressorTrainer), typeof(SignatureTrainer), typeof(SignatureFeatureScorerTrainer) },
     OnlineGradientDescentTrainer.UserNameValue,
     OnlineGradientDescentTrainer.LoadNameValue,
@@ -23,7 +21,7 @@ using Microsoft.ML.Training;
     "stochasticgradientdescentregression")]
 [assembly: LoadableClass(typeof(void), typeof(OnlineGradientDescentTrainer), null, typeof(SignatureEntryPointModule), "OGD")]
 
-namespace Microsoft.ML.Trainers.Online
+namespace Microsoft.ML.Trainers
 {
 
     /// <include file='doc.xml' path='doc/members/member[@name="OGD"]/*' />
@@ -35,7 +33,7 @@ namespace Microsoft.ML.Trainers.Online
             + "In the TLC implementation of OGD, it is for linear regression.";
         internal const string ShortName = "ogd";
 
-        public sealed class Arguments : AveragedLinearArguments
+        public sealed class Options : AveragedLinearOptions
         {
             [Argument(ArgumentType.Multiple, HelpText = "Loss Function", ShortName = "loss", SortOrder = 50)]
             [TGUI(Label = "Loss Function")]
@@ -44,7 +42,7 @@ namespace Microsoft.ML.Trainers.Online
             /// <summary>
             /// Set defaults that vary from the base type.
             /// </summary>
-            public Arguments()
+            public Options()
             {
                 LearningRate = OgdDefaultArgs.LearningRate;
                 DecreaseLearningRate = OgdDefaultArgs.DecreaseLearningRate;
@@ -53,7 +51,7 @@ namespace Microsoft.ML.Trainers.Online
             internal override IComponentFactory<IScalarOutputLoss> LossFunctionFactory => LossFunction;
 
             [BestFriend]
-            internal class OgdDefaultArgs : AveragedDefaultArgs
+            internal class OgdDefaultArgs : AveragedDefault
             {
                 public new const float LearningRate = 0.1f;
                 public new const bool DecreaseLearningRate = true;
@@ -98,30 +96,25 @@ namespace Microsoft.ML.Trainers.Online
         /// <param name="decreaseLearningRate">Decrease learning rate as iterations progress.</param>
         /// <param name="l2RegularizerWeight">L2 Regularization Weight.</param>
         /// <param name="numIterations">Number of training iterations through the data.</param>
-        /// <param name="weightsColumn">The name of the weights column.</param>
         /// <param name="lossFunction">The custom loss functions. Defaults to <see cref="SquaredLoss"/> if not provided.</param>
-        /// <param name="advancedSettings">A delegate to supply advanced arguments to the algorithm. </param>
-        public OnlineGradientDescentTrainer(IHostEnvironment env,
+        internal OnlineGradientDescentTrainer(IHostEnvironment env,
             string labelColumn = DefaultColumnNames.Label,
             string featureColumn = DefaultColumnNames.Features,
-            float learningRate = Arguments.OgdDefaultArgs.LearningRate,
-            bool decreaseLearningRate = Arguments.OgdDefaultArgs.DecreaseLearningRate,
-            float l2RegularizerWeight = Arguments.OgdDefaultArgs.L2RegularizerWeight,
-            int numIterations = Arguments.OgdDefaultArgs.NumIterations,
-            string weightsColumn = null,
-            IRegressionLoss lossFunction = null,
-            Action<Arguments> advancedSettings = null)
-            : this(env, InvokeAdvanced(advancedSettings, new Arguments
+            float learningRate = Options.OgdDefaultArgs.LearningRate,
+            bool decreaseLearningRate = Options.OgdDefaultArgs.DecreaseLearningRate,
+            float l2RegularizerWeight = Options.OgdDefaultArgs.L2RegularizerWeight,
+            int numIterations = Options.OgdDefaultArgs.NumIterations,
+            IRegressionLoss lossFunction = null)
+            : this(env, new Options
             {
                 LearningRate = learningRate,
                 DecreaseLearningRate = decreaseLearningRate,
                 L2RegularizerWeight = l2RegularizerWeight,
-                NumIterations = numIterations,
-                LabelColumn = labelColumn,
-                FeatureColumn = featureColumn,
-                InitialWeights = weightsColumn,
+                NumberOfIterations = numIterations,
+                LabelColumnName = labelColumn,
+                FeatureColumnName = featureColumn,
                 LossFunction = new TrivialFactory(lossFunction ?? new SquaredLoss())
-            }))
+            })
         {
         }
 
@@ -137,19 +130,19 @@ namespace Microsoft.ML.Trainers.Online
             IRegressionLoss IComponentFactory<IRegressionLoss>.CreateComponent(IHostEnvironment env) => _loss;
         }
 
-        internal OnlineGradientDescentTrainer(IHostEnvironment env, Arguments args)
-        : base(args, env, UserNameValue, TrainerUtils.MakeR4ScalarColumn(args.LabelColumn))
+        internal OnlineGradientDescentTrainer(IHostEnvironment env, Options options)
+        : base(options, env, UserNameValue, TrainerUtils.MakeR4ScalarColumn(options.LabelColumnName))
         {
-            LossFunction = args.LossFunction.CreateComponent(env);
+            LossFunction = options.LossFunction.CreateComponent(env);
         }
 
-        public override PredictionKind PredictionKind => PredictionKind.Regression;
+        private protected override PredictionKind PredictionKind => PredictionKind.Regression;
 
-        protected override SchemaShape.Column[] GetOutputColumnsCore(SchemaShape inputSchema)
+        private protected override SchemaShape.Column[] GetOutputColumnsCore(SchemaShape inputSchema)
         {
             return new[]
             {
-                new SchemaShape.Column(DefaultColumnNames.Score, SchemaShape.Column.VectorKind.Scalar, NumberType.R4, false, new SchemaShape(MetadataUtils.GetTrainerOutputMetadata()))
+                new SchemaShape.Column(DefaultColumnNames.Score, SchemaShape.Column.VectorKind.Scalar, NumberDataViewType.Single, false, new SchemaShape(AnnotationUtils.GetTrainerOutputAnnotation()))
             };
         }
 
@@ -166,25 +159,20 @@ namespace Microsoft.ML.Trainers.Online
         [TlcModule.EntryPoint(Name = "Trainers.OnlineGradientDescentRegressor",
             Desc = "Train a Online gradient descent perceptron.",
             UserName = UserNameValue,
-            ShortName = ShortName,
-            XmlInclude = new[] { @"<include file='../Microsoft.ML.StandardLearners/Standard/Online/doc.xml' path='doc/members/member[@name=""OGD""]/*' />",
-                                 @"<include file='../Microsoft.ML.StandardLearners/Standard/Online/doc.xml' path='doc/members/example[@name=""OGD""]/*' />"})]
-        public static CommonOutputs.RegressionOutput TrainRegression(IHostEnvironment env, Arguments input)
+            ShortName = ShortName)]
+        internal static CommonOutputs.RegressionOutput TrainRegression(IHostEnvironment env, Options input)
         {
             Contracts.CheckValue(env, nameof(env));
             var host = env.Register("TrainOGD");
             host.CheckValue(input, nameof(input));
             EntryPointUtils.CheckInputArgs(host, input);
 
-            return LearnerEntryPointsUtils.Train<Arguments, CommonOutputs.RegressionOutput>(host, input,
+            return TrainerEntryPointsUtils.Train<Options, CommonOutputs.RegressionOutput>(host, input,
                 () => new OnlineGradientDescentTrainer(host, input),
-                () => LearnerEntryPointsUtils.FindColumn(host, input.TrainingData.Schema, input.LabelColumn));
+                () => TrainerEntryPointsUtils.FindColumn(host, input.TrainingData.Schema, input.LabelColumnName));
         }
 
-        protected override RegressionPredictionTransformer<LinearRegressionModelParameters> MakeTransformer(LinearRegressionModelParameters model, Schema trainSchema)
+        private protected override RegressionPredictionTransformer<LinearRegressionModelParameters> MakeTransformer(LinearRegressionModelParameters model, DataViewSchema trainSchema)
         => new RegressionPredictionTransformer<LinearRegressionModelParameters>(Host, model, trainSchema, FeatureColumn.Name);
-
-        public RegressionPredictionTransformer<LinearRegressionModelParameters> Train(IDataView trainData, IPredictor initialPredictor = null)
-            => TrainTransformer(trainData, initPredictor: initialPredictor);
     }
 }

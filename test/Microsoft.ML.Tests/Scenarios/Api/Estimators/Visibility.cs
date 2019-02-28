@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.ML.Data;
 using Microsoft.ML.RunTests;
@@ -23,15 +24,16 @@ namespace Microsoft.ML.Tests.Scenarios.Api
         void Visibility()
         {
             var ml = new MLContext(seed: 1, conc: 1);
-            var pipeline = ml.Data.CreateTextReader(TestDatasets.Sentiment.GetLoaderColumns(), hasHeader: true)
-                .Append(ml.Transforms.Text.FeaturizeText("SentimentText", "Features", s => s.OutputTokens = true));
+            var pipeline = ml.Data.CreateTextLoader(TestDatasets.Sentiment.GetLoaderColumns(), hasHeader: true)
+                .Append(ml.Transforms.Text.FeaturizeText("Features", new List<string> { "SentimentText" }, 
+                                                        new Transforms.Text.TextFeaturizingEstimator.Options { OutputTokens = true }));
 
             var src = new MultiFileSource(GetDataPath(TestDatasets.Sentiment.trainFilename));
-            var data = pipeline.Fit(src).Read(src);
+            var data = pipeline.Fit(src).Load(src);
 
-            var textColumn = data.GetColumn<string>(ml, "SentimentText").Take(20);
-            var transformedTextColumn = data.GetColumn<string[]>(ml, "Features_TransformedText").Take(20);
-            var features = data.GetColumn<float[]>(ml, "Features").Take(20);
+            var textColumn = data.GetColumn<string>(data.Schema["SentimentText"]).Take(20);
+            var transformedTextColumn = data.GetColumn<string[]>(data.Schema["Features_TransformedText"]).Take(20);
+            var features = data.GetColumn<float[]>(data.Schema["Features"]).Take(20);
         }
     }
 }

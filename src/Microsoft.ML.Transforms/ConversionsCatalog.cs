@@ -3,7 +3,7 @@
 // See the LICENSE file in the project root for more information.
 
 using Microsoft.ML.Data;
-using Microsoft.ML.Transforms.Conversions;
+using Microsoft.ML.Transforms;
 
 namespace Microsoft.ML
 {
@@ -14,23 +14,23 @@ namespace Microsoft.ML
     {
 
         /// <summary>
-        ///  Convert the key types back to binary verctor.
+        ///  Convert the key types back to binary vector.
         /// </summary>
         /// <param name="catalog">The categorical transform's catalog.</param>
         /// <param name="columns">The input column.</param>
         public static KeyToBinaryVectorMappingEstimator MapKeyToBinaryVector(this TransformsCatalog.ConversionTransforms catalog,
-            params KeyToBinaryVectorMappingTransformer.ColumnInfo[] columns)
-            => new KeyToBinaryVectorMappingEstimator(CatalogUtils.GetEnvironment(catalog), columns);
+            params ColumnOptions[] columns)
+            => new KeyToBinaryVectorMappingEstimator(CatalogUtils.GetEnvironment(catalog), ColumnOptions.ConvertToValueTuples(columns));
 
         /// <summary>
-        ///  Convert the key types back to binary verctor.
+        ///  Convert the key types back to binary vector.
         /// </summary>
         /// <param name="catalog">The categorical transform's catalog.</param>
-        /// <param name="inputColumn">The name of the input column of the transformation.</param>
-        /// <param name="outputColumn">The name of the column produced by the transformation.</param>
+        /// <param name="outputColumnName">Name of the column resulting from the transformation of <paramref name="inputColumnName"/>.</param>
+        /// <param name="inputColumnName">Name of column to transform. If set to <see langword="null"/>, the value of the <paramref name="outputColumnName"/> will be used as source.</param>
         public static KeyToBinaryVectorMappingEstimator MapKeyToBinaryVector(this TransformsCatalog.ConversionTransforms catalog,
-            string inputColumn,
-            string outputColumn = null)
-            => new KeyToBinaryVectorMappingEstimator(CatalogUtils.GetEnvironment(catalog), inputColumn, outputColumn);
+            string outputColumnName,
+            string inputColumnName = null)
+            => new KeyToBinaryVectorMappingEstimator(CatalogUtils.GetEnvironment(catalog), outputColumnName, inputColumnName);
     }
 }

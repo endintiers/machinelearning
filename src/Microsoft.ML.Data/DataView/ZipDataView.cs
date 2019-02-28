@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Internal.Utilities;
 
 namespace Microsoft.ML.Data
@@ -13,7 +14,8 @@ namespace Microsoft.ML.Data
     /// This is a data view that is a 'zip' of several data views.
     /// The length of the zipped data view is equal to the shortest of the lengths of the components.
     /// </summary>
-    public sealed class ZipDataView : IDataView
+    [BestFriend]
+    internal sealed class ZipDataView : IDataView
     {
         // REVIEW: there are other potential 'zip modes' that can be implemented:
         // * 'zip longest', iterate until all sources finish, and return the 'sensible missing values' for sources that ended
@@ -52,7 +54,7 @@ namespace Microsoft.ML.Data
 
         public bool CanShuffle { get { return false; } }
 
-        public Schema Schema => _zipBinding.OutputSchema;
+        public DataViewSchema Schema => _zipBinding.OutputSchema;
 
         public long? GetRowCount()
         {
@@ -70,9 +72,9 @@ namespace Microsoft.ML.Data
             return min;
         }
 
-        public RowCursor GetRowCursor(Func<int, bool> predicate, Random rand = null)
+        public DataViewRowCursor GetRowCursor(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null)
         {
-            _host.CheckValue(predicate, nameof(predicate));
+            var predicate = RowCursorUtils.FromColumnsToPredicate(columnsNeeded, Schema);
             _host.CheckValueOrNull(rand);
 
             var srcPredicates = _zipBinding.GetInputPredicates(predicate);
@@ -83,36 +85,36 @@ namespace Microsoft.ML.Data
             // One reason this is not done currently is because the API has 'somewhat mutable' data views, so potentially this
             // optimization might backfire.
             var srcCursors = _sources
-                .Select((dv, i) => srcPredicates[i] == null ? GetMinimumCursor(dv) : dv.GetRowCursor(srcPredicates[i], null)).ToArray();
+                .Select((dv, i) => srcPredicates[i] == null ? GetMinimumCursor(dv) : dv.GetRowCursor(dv.Schema.Where(x => srcPredicates[i](x.Index)), null)).ToArray();
             return new Cursor(this, srcCursors, predicate);
         }
 
         /// <summary>
-        /// Create an <see cref="RowCursor"/> with no requested columns on a data view.
+        /// Create an <see cref="DataViewRowCursor"/> with no requested columns on a data view.
         /// Potentially, this can be optimized by calling GetRowCount(lazy:true) first, and if the count is not known,
         /// wrapping around GetCursor().
         /// </summary>
-        private RowCursor GetMinimumCursor(IDataView dv)
+        private DataViewRowCursor GetMinimumCursor(IDataView dv)
         {
             _host.AssertValue(dv);
-            return dv.GetRowCursor(x => false);
+            return dv.GetRowCursor();
         }
 
-        public RowCursor[] GetRowCursorSet(Func<int, bool> predicate, int n, Random rand = null)
+        public DataViewRowCursor[] GetRowCursorSet(IEnumerable<DataViewSchema.Column> columnsNeeded, int n, Random rand = null)
         {
-            return new RowCursor[] { GetRowCursor(predicate, rand) };
+            return new DataViewRowCursor[] { GetRowCursor(columnsNeeded, rand) };
         }
 
         private sealed class Cursor : RootCursorBase
         {
-            private readonly RowCursor[] _cursors;
+            private readonly DataViewRowCursor[] _cursors;
             private readonly ZipBinding _zipBinding;
             private readonly bool[] _isColumnActive;
             private bool _disposed;
 
             public override long Batch { get { return 0; } }
 
-            public Cursor(ZipDataView parent, RowCursor[] srcCursors, Func<int, bool> predicate)
+            public Cursor(ZipDataView parent, DataViewRowCursor[] srcCursors, Func<int, bool> predicate)
                 : base(parent._host)
             {
                 Ch.AssertNonEmpty(srcCursors);
@@ -136,22 +138,20 @@ namespace Microsoft.ML.Data
                 base.Dispose(disposing);
             }
 
-            public override ValueGetter<RowId> GetIdGetter()
+            public override ValueGetter<DataViewRowId> GetIdGetter()
             {
                 return
-                    (ref RowId val) =>
+                    (ref DataViewRowId val) =>
                     {
-                        Ch.Check(IsGood, "Cannot call ID getter in current state");
-                        val = new RowId((ulong)Position, 0);
+                        Ch.Check(IsGood, RowCursorUtils.FetchValueStateError);
+                        val = new DataViewRowId((ulong)Position, 0);
                     };
             }
 
             protected override bool MoveNextCore()
             {
-                Ch.Assert(State != CursorState.Done);
                 foreach (var cursor in _cursors)
                 {
-                    Ch.Assert(cursor.State != CursorState.Done);
                     if (!cursor.MoveNext())
                         return false;
                 }
@@ -159,20 +159,7 @@ namespace Microsoft.ML.Data
                 return true;
             }
 
-            protected override bool MoveManyCore(long count)
-            {
-                Ch.Assert(State != CursorState.Done);
-                foreach (var cursor in _cursors)
-                {
-                    Ch.Assert(cursor.State != CursorState.Done);
-                    if (!cursor.MoveMany(count))
-                        return false;
-                }
-
-                return true;
-            }
-
-            public override Schema Schema => _zipBinding.OutputSchema;
+            public override DataViewSchema Schema => _zipBinding.OutputSchema;
 
             public override bool IsColumnActive(int col)
             {

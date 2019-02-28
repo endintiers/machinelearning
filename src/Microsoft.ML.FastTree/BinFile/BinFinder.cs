@@ -7,7 +7,7 @@ using System.Threading;
 using Microsoft.ML.Data;
 using Microsoft.ML.Internal.Utilities;
 
-namespace Microsoft.ML.Trainers.FastTree.Internal
+namespace Microsoft.ML.Trainers.FastTree
 {
     /// <summary>
     /// A class that bins vectors of doubles into a specified number of equal mass bins.
@@ -25,10 +25,9 @@ namespace Microsoft.ML.Trainers.FastTree.Internal
         {
             get
             {
-                if (_trivialBinUpperBounds == null)
-                    Interlocked.CompareExchange(ref _trivialBinUpperBounds, new double[] { double.PositiveInfinity }, null);
-                Contracts.AssertValue(_trivialBinUpperBounds);
-                return _trivialBinUpperBounds;
+                return _trivialBinUpperBounds ??
+                    Interlocked.CompareExchange(ref _trivialBinUpperBounds, new double[] { double.PositiveInfinity }, null) ??
+                    _trivialBinUpperBounds;
             }
         }
 

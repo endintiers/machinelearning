@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Internal.Utilities;
 
 namespace Microsoft.ML.Data
@@ -20,7 +21,7 @@ namespace Microsoft.ML.Data
             public const int MaxRows = 100;
         }
 
-        public Schema Schema { get; }
+        public DataViewSchema Schema { get; }
         public ImmutableArray<ColumnInfo> ColumnView { get; }
         public ImmutableArray<RowInfo> RowView { get; }
 
@@ -37,7 +38,7 @@ namespace Microsoft.ML.Data
             for (int i = 0; i < columns.Length; i++)
                 columns[i] = new List<object>();
 
-            using (var cursor = data.GetRowCursor(c => true))
+            using (var cursor = data.GetRowCursorForAllColumns())
             {
                 var setters = new Action<RowInfo, List<object>>[n];
                 for (int i = 0; i < n; i++)
@@ -61,7 +62,7 @@ namespace Microsoft.ML.Data
         public override string ToString()
             => $"{Schema.Count} columns, {RowView.Length} rows";
 
-        private Action<RowInfo, List<object>> MakeSetter<T>(Row row, int col)
+        private Action<RowInfo, List<object>> MakeSetter<T>(DataViewRow row, int col)
         {
             var getter = row.GetGetter<T>(col);
             string name = row.Schema[col].Name;
@@ -95,12 +96,12 @@ namespace Microsoft.ML.Data
 
         public sealed class ColumnInfo
         {
-            public Schema.Column Column { get; }
+            public DataViewSchema.Column Column { get; }
             public object[] Values { get; }
 
             public override string ToString() => $"{Column.Name}: {Column.Type}";
 
-            internal ColumnInfo(Schema.Column column, object[] values)
+            internal ColumnInfo(DataViewSchema.Column column, object[] values)
             {
                 Column = column;
                 Values = values;

@@ -4,9 +4,10 @@ using Microsoft.ML.Data;
 
 namespace Microsoft.ML.Samples.Dynamic
 {
-    public class FastTreeRegressionExample
+    public static class FastTreeRegression
     {
-        public static void FastTreeRegression()
+        // This example requires installation of additional nuget package <a href="https://www.nuget.org/packages/Microsoft.ML.FastTree/">Microsoft.ML.FastTree</a>.
+        public static void Example()
         {
             // Create a new ML context, for ML.NET operations. It can be used for exception tracking and logging, 
             // as well as the source of randomness.
@@ -14,7 +15,7 @@ namespace Microsoft.ML.Samples.Dynamic
 
             // Get a small dataset as an IEnumerable and convert it to an IDataView.
             var data = SamplesUtils.DatasetUtils.GetInfertData();
-            var trainData = ml.CreateStreamingDataView(data);
+            var trainData = ml.Data.LoadFromEnumerable(data);
 
             // Preview of the data.
             //
@@ -29,7 +30,7 @@ namespace Microsoft.ML.Samples.Dynamic
             // We will train a FastTreeRegression model with 1 tree on these two columns to predict Age.
             string outputColumnName = "Features";
             var pipeline = ml.Transforms.Concatenate(outputColumnName, new[] { "Parity", "Induced" })
-                .Append(ml.Regression.Trainers.FastTree(labelColumn: "Age", featureColumn: outputColumnName, numTrees: 1, numLeaves: 2, minDatapointsInLeaves: 1));
+                .Append(ml.Regression.Trainers.FastTree(labelColumnName: "Age", featureColumnName: outputColumnName, numTrees: 1, numLeaves: 2, minDatapointsInLeaves: 1));
 
             var model = pipeline.Fit(trainData);
 

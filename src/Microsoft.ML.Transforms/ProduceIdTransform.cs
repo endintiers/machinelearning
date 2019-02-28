@@ -3,6 +3,9 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
@@ -24,7 +27,7 @@ namespace Microsoft.ML.Transforms
     /// some other file, then apply this transform to that dataview, it may of course have a different
     /// result. This is distinct from most transforms that produce results based on data alone.
     /// </summary>
-    public sealed class ProduceIdTransform : RowToRowTransformBase
+    internal sealed class ProduceIdTransform : RowToRowTransformBase
     {
         public sealed class Arguments
         {
@@ -34,19 +37,19 @@ namespace Microsoft.ML.Transforms
 
         private sealed class Bindings : ColumnBindingsBase
         {
-            public Bindings(Schema input, bool user, string name)
+            public Bindings(DataViewSchema input, bool user, string name)
                 : base(input, user, name)
             {
                 Contracts.Assert(InfoCount == 1);
             }
 
-            protected override ColumnType GetColumnTypeCore(int iinfo)
+            protected override DataViewType GetColumnTypeCore(int iinfo)
             {
                 Contracts.Assert(iinfo == 0);
-                return NumberType.UG;
+                return RowIdDataViewType.Instance;
             }
 
-            public static Bindings Create(ModelLoadContext ctx, Schema input)
+            public static Bindings Create(ModelLoadContext ctx, DataViewSchema input)
             {
                 Contracts.AssertValue(ctx);
                 Contracts.AssertValue(input);
@@ -57,7 +60,7 @@ namespace Microsoft.ML.Transforms
                 return new Bindings(input, true, name);
             }
 
-            public void Save(ModelSaveContext ctx)
+            internal void Save(ModelSaveContext ctx)
             {
                 Contracts.AssertValue(ctx);
 
@@ -77,7 +80,7 @@ namespace Microsoft.ML.Transforms
         }
 
         internal const string Summary = "Produces a new column with the row ID.";
-        public const string LoaderSignature = "ProduceIdTransform";
+        internal const string LoaderSignature = "ProduceIdTransform";
         private static VersionInfo GetVersionInfo()
         {
             return new VersionInfo(
@@ -91,7 +94,7 @@ namespace Microsoft.ML.Transforms
 
         private readonly Bindings _bindings;
 
-        public override Schema OutputSchema => _bindings.AsSchema;
+        public override DataViewSchema OutputSchema => _bindings.AsSchema;
 
         public override bool CanShuffle { get { return Source.CanShuffle; } }
 
@@ -124,7 +127,7 @@ namespace Microsoft.ML.Transforms
             return h.Apply("Loading Model", ch => new ProduceIdTransform(h, ctx, input));
         }
 
-        public override void Save(ModelSaveContext ctx)
+        private protected override void SaveModel(ModelSaveContext ctx)
         {
             Host.CheckValue(ctx, nameof(ctx));
             ctx.CheckAtModel();
@@ -135,25 +138,27 @@ namespace Microsoft.ML.Transforms
             _bindings.Save(ctx);
         }
 
-        protected override RowCursor GetRowCursorCore(Func<int, bool> predicate, Random rand = null)
+        protected override DataViewRowCursor GetRowCursorCore(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null)
         {
-            Host.AssertValue(predicate, "predicate");
             Host.AssertValueOrNull(rand);
 
+            var predicate = RowCursorUtils.FromColumnsToPredicate(columnsNeeded, OutputSchema);
             var inputPred = _bindings.GetDependencies(predicate);
-            var input = Source.GetRowCursor(inputPred, rand);
+            var inputCols = Source.Schema.Where(x => inputPred(x.Index));
+            var input = Source.GetRowCursor(inputCols, rand);
             bool active = predicate(_bindings.MapIinfoToCol(0));
 
             return new Cursor(Host, _bindings, input, active);
         }
 
-        public override RowCursor[] GetRowCursorSet(Func<int, bool> predicate, int n, Random rand = null)
+        public override DataViewRowCursor[] GetRowCursorSet(IEnumerable<DataViewSchema.Column> columnsNeeded, int n, Random rand = null)
         {
-            Host.CheckValue(predicate, nameof(predicate));
             Host.CheckValueOrNull(rand);
-
+            var predicate = RowCursorUtils.FromColumnsToPredicate(columnsNeeded, OutputSchema);
             var inputPred = _bindings.GetDependencies(predicate);
-            RowCursor[] cursors = Source.GetRowCursorSet(inputPred, n, rand);
+
+            var inputCols = Source.Schema.Where(x => inputPred(x.Index));
+            DataViewRowCursor[] cursors = Source.GetRowCursorSet(inputCols, n, rand);
             bool active = predicate(_bindings.MapIinfoToCol(0));
             for (int c = 0; c < cursors.Length; ++c)
                 cursors[c] = new Cursor(Host, _bindings, cursors[c], active);
@@ -171,9 +176,9 @@ namespace Microsoft.ML.Transforms
             private readonly Bindings _bindings;
             private readonly bool _active;
 
-            public override Schema Schema => _bindings.AsSchema;
+            public override DataViewSchema Schema => _bindings.AsSchema;
 
-            public Cursor(IChannelProvider provider, Bindings bindings, RowCursor input, bool active)
+            public Cursor(IChannelProvider provider, Bindings bindings, DataViewRowCursor input, bool active)
                 : base(provider, input)
             {
                 Ch.CheckValue(bindings, nameof(bindings));

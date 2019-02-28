@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
+using Microsoft.Data.DataView;
 
 namespace Microsoft.ML.Data
 {
@@ -11,11 +12,12 @@ namespace Microsoft.ML.Data
     /// <summary>
     /// Represents a data view that supports random access to a specific row.
     /// </summary>
-    public interface IRowSeekable
+    [BestFriend]
+    internal interface IRowSeekable
     {
         RowSeeker GetSeeker(Func<int, bool> predicate);
 
-        Schema Schema { get; }
+        DataViewSchema Schema { get; }
     }
 
     /// <summary>
@@ -23,7 +25,8 @@ namespace Microsoft.ML.Data
     /// For <see cref="RowSeeker"/>, when the state is valid (that is when <see cref="MoveTo(long)"/>
     /// returns <see langword="true"/>), it returns the current row index. Otherwise it's -1.
     /// </summary>
-    public abstract class RowSeeker : Row
+    [BestFriend]
+    internal abstract class RowSeeker : DataViewRow
     {
         /// <summary>
         /// Moves the seeker to a row at a specific row index.

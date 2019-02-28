@@ -17,14 +17,13 @@ using Microsoft.ML.Command;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Trainers.FastTree;
-using Microsoft.ML.Trainers.FastTree.Internal;
 
 [assembly: LoadableClass(typeof(SumupPerformanceCommand), typeof(SumupPerformanceCommand.Arguments), typeof(SignatureCommand),
     "", "FastTreeSumupPerformance", "ftsumup")]
 
 namespace Microsoft.ML.Trainers.FastTree
 {
-using Stopwatch = System.Diagnostics.Stopwatch;
+    using Stopwatch = System.Diagnostics.Stopwatch;
 
     /// <summary>
     /// This is an internal utility command to measure the performance of the IntArray sumup operation.
@@ -288,7 +287,7 @@ using Stopwatch = System.Diagnostics.Stopwatch;
 
                 for (int t = 0; t < threadPool.Length; ++t)
                 {
-                    Thread thread = threadPool[t] = Utils.CreateForegroundThread((object io) =>
+                    Thread thread = threadPool[t] = Utils.RunOnForegroundThread((object io) =>
                     {
                         int w = (int)io;
                         AutoResetEvent ev = events[w];

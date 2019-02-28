@@ -4,7 +4,7 @@
 
 using Microsoft.ML;
 using Microsoft.ML.StaticPipe;
-using Microsoft.ML.Trainers.Online;
+using Microsoft.ML.Trainers;
 using Xunit;
 
 namespace Microsoft.ML.Tests.TrainerEstimators
@@ -16,40 +16,38 @@ namespace Microsoft.ML.Tests.TrainerEstimators
         {
             var dataPath = GetDataPath("breast-cancer.txt");
 
-            var regressionData = TextLoaderStatic.CreateReader(ML, ctx => (Label: ctx.LoadFloat(0), Features: ctx.LoadFloat(1, 10)))
-                .Read(dataPath);
+            var regressionData = TextLoaderStatic.CreateLoader(ML, ctx => (Label: ctx.LoadFloat(0), Features: ctx.LoadFloat(1, 10)))
+                .Load(dataPath);
 
             var regressionPipe = regressionData.MakeNewEstimator()
                 .Append(r => (r.Label, Features: r.Features.Normalize()));
 
             var regressionTrainData = regressionPipe.Fit(regressionData).Transform(regressionData).AsDynamic;
 
-            var ogdTrainer = new OnlineGradientDescentTrainer(ML, "Label", "Features");
+            var ogdTrainer = ML.Regression.Trainers.OnlineGradientDescent();
             TestEstimatorCore(ogdTrainer, regressionTrainData);
             var ogdModel = ogdTrainer.Fit(regressionTrainData);
-            ogdTrainer.Train(regressionTrainData, ogdModel.Model);
+            ogdTrainer.Fit(regressionTrainData, ogdModel.Model);
 
-            var binaryData = TextLoaderStatic.CreateReader(ML, ctx => (Label: ctx.LoadBool(0), Features: ctx.LoadFloat(1, 10)))
-               .Read(dataPath);
+            var binaryData = TextLoaderStatic.CreateLoader(ML, ctx => (Label: ctx.LoadBool(0), Features: ctx.LoadFloat(1, 10)))
+               .Load(dataPath);
 
             var binaryPipe = binaryData.MakeNewEstimator()
                 .Append(r => (r.Label, Features: r.Features.Normalize()));
 
             var binaryTrainData = binaryPipe.Fit(binaryData).Transform(binaryData).AsDynamic;
-            var apTrainer = new AveragedPerceptronTrainer(ML, "Label", "Features", lossFunction: new HingeLoss(), advancedSettings: s =>
-            {
-                s.LearningRate = 0.5f;
-            });
+            var apTrainer = ML.BinaryClassification.Trainers.AveragedPerceptron(
+                new AveragedPerceptronTrainer.Options{ LearningRate = 0.5f });
             TestEstimatorCore(apTrainer, binaryTrainData);
 
             var apModel = apTrainer.Fit(binaryTrainData);
-            apTrainer.Train(binaryTrainData, apModel.Model);
+            apTrainer.Fit(binaryTrainData, apModel.Model);
 
-            var svmTrainer = new LinearSvmTrainer(ML, "Label", "Features");
+            var svmTrainer = ML.BinaryClassification.Trainers.LinearSupportVectorMachines();
             TestEstimatorCore(svmTrainer, binaryTrainData);
 
             var svmModel = svmTrainer.Fit(binaryTrainData);
-            svmTrainer.Train(binaryTrainData, apModel.Model);
+            svmTrainer.Fit(binaryTrainData, apModel.Model);
 
             Done();
 

@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for more information.
 
 using System.Linq;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Data;
 using Microsoft.ML.RunTests;
 using Xunit;
@@ -21,16 +22,16 @@ namespace Microsoft.ML.Tests
         {
             var builder = new ArrayDataViewBuilder(ML);
             builder.AddColumn("Strings", new[] { "foo", "bar", "baz" });
-            builder.AddColumn("Floats", NumberType.R4, new float[] { 1, 2, 3 });
+            builder.AddColumn("Floats", NumberDataViewType.Single, new float[] { 1, 2, 3 });
             var data = builder.GetDataView();
 
-            var data1 = ML.Data.FilterByColumn(data, "Floats", upperBound: 2.8);
-            var cnt = data1.GetColumn<float>(ML, "Floats").Count();
+            var data1 = ML.Data.FilterRowsByColumn(data, "Floats", upperBound: 2.8);
+            var cnt = data1.GetColumn<float>(data1.Schema["Floats"]).Count();
             Assert.Equal(2L, cnt);
 
-            data = ML.Transforms.Conversion.Hash("Strings", "Key", hashBits: 20).Fit(data).Transform(data);
-            var data2 = ML.Data.FilterByKeyColumnFraction(data, "Key", upperBound: 0.5);
-            cnt = data2.GetColumn<float>(ML, "Floats").Count();
+            data = ML.Transforms.Conversion.Hash("Key", "Strings", hashBits: 20).Fit(data).Transform(data);
+            var data2 = ML.Data.FilterRowsByKeyColumnFraction(data, "Key", upperBound: 0.5);
+            cnt = data2.GetColumn<float>(data.Schema["Floats"]).Count();
             Assert.Equal(1L, cnt);
         }
     }

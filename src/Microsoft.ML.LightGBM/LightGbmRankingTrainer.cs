@@ -3,17 +3,16 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
-using Microsoft.ML.Core.Data;
 using Microsoft.ML.Data;
 using Microsoft.ML.EntryPoints;
 using Microsoft.ML.LightGBM;
 using Microsoft.ML.Model;
+using Microsoft.ML.Trainers;
 using Microsoft.ML.Trainers.FastTree;
-using Microsoft.ML.Trainers.FastTree.Internal;
-using Microsoft.ML.Training;
 
-[assembly: LoadableClass(LightGbmRankingTrainer.UserName, typeof(LightGbmRankingTrainer), typeof(LightGbmArguments),
+[assembly: LoadableClass(LightGbmRankingTrainer.UserName, typeof(LightGbmRankingTrainer), typeof(Options),
     new[] { typeof(SignatureRankerTrainer), typeof(SignatureTrainer), typeof(SignatureTreeEnsembleTrainer) },
     "LightGBM Ranking", LightGbmRankingTrainer.LoadNameValue, LightGbmRankingTrainer.ShortName, DocName = "trainer/LightGBM.md")]
 
@@ -24,7 +23,7 @@ using Microsoft.ML.Training;
 namespace Microsoft.ML.LightGBM
 {
 
-    public sealed class LightGbmRankingModelParameters : TreeEnsembleModelParameters
+    public sealed class LightGbmRankingModelParameters : TreeEnsembleModelParametersBasedOnRegressionTree
     {
         internal const string LoaderSignature = "LightGBMRankerExec";
         internal const string RegistrationName = "LightGBMRankingPredictor";
@@ -45,12 +44,12 @@ namespace Microsoft.ML.LightGBM
                 loaderAssemblyName: typeof(LightGbmRankingModelParameters).Assembly.FullName);
         }
 
-        protected override uint VerNumFeaturesSerialized => 0x00010002;
-        protected override uint VerDefaultValueSerialized => 0x00010004;
-        protected override uint VerCategoricalSplitSerialized => 0x00010005;
-        public override PredictionKind PredictionKind => PredictionKind.Ranking;
+        private protected override uint VerNumFeaturesSerialized => 0x00010002;
+        private protected override uint VerDefaultValueSerialized => 0x00010004;
+        private protected override uint VerCategoricalSplitSerialized => 0x00010005;
+        private protected override PredictionKind PredictionKind => PredictionKind.Ranking;
 
-        public LightGbmRankingModelParameters(IHostEnvironment env, TreeEnsemble trainedEnsemble, int featureCount, string innerArgs)
+        internal LightGbmRankingModelParameters(IHostEnvironment env, InternalTreeEnsemble trainedEnsemble, int featureCount, string innerArgs)
             : base(env, RegistrationName, trainedEnsemble, featureCount, innerArgs)
         {
         }
@@ -75,14 +74,14 @@ namespace Microsoft.ML.LightGBM
     /// <include file='doc.xml' path='doc/members/member[@name="LightGBM"]/*' />
     public sealed class LightGbmRankingTrainer : LightGbmTrainerBase<float, RankingPredictionTransformer<LightGbmRankingModelParameters>, LightGbmRankingModelParameters>
     {
-        public const string UserName = "LightGBM Ranking";
-        public const string LoadNameValue = "LightGBMRanking";
-        public const string ShortName = "LightGBMRank";
+        internal const string UserName = "LightGBM Ranking";
+        internal const string LoadNameValue = "LightGBMRanking";
+        internal const string ShortName = "LightGBMRank";
 
-        public override PredictionKind PredictionKind => PredictionKind.Ranking;
+        private protected override PredictionKind PredictionKind => PredictionKind.Ranking;
 
-        internal LightGbmRankingTrainer(IHostEnvironment env, LightGbmArguments args)
-             : base(env, LoadNameValue, args, TrainerUtils.MakeR4ScalarColumn(args.LabelColumn))
+        internal LightGbmRankingTrainer(IHostEnvironment env, Options options)
+             : base(env, LoadNameValue, options, TrainerUtils.MakeR4ScalarColumn(options.LabelColumnName))
         {
         }
 
@@ -98,11 +97,7 @@ namespace Microsoft.ML.LightGBM
         /// <param name="numBoostRound">Number of iterations.</param>
         /// <param name="minDataPerLeaf">The minimal number of documents allowed in a leaf of the tree, out of the subsampled data.</param>
         /// <param name="learningRate">The learning rate.</param>
-        /// <param name="advancedSettings">A delegate to set more settings.
-        /// The settings here will override the ones provided in the direct signature,
-        /// if both are present and have different values.
-        /// The columns names, however need to be provided directly, not through the <paramref name="advancedSettings"/>.</param>
-        public LightGbmRankingTrainer(IHostEnvironment env,
+        internal LightGbmRankingTrainer(IHostEnvironment env,
             string labelColumn = DefaultColumnNames.Label,
             string featureColumn = DefaultColumnNames.Features,
             string groupId = DefaultColumnNames.GroupId,
@@ -110,9 +105,8 @@ namespace Microsoft.ML.LightGBM
             int? numLeaves = null,
             int? minDataPerLeaf = null,
             double? learningRate = null,
-            int numBoostRound = LightGbmArguments.Defaults.NumBoostRound,
-            Action<LightGbmArguments> advancedSettings = null)
-            : base(env, LoadNameValue, TrainerUtils.MakeR4ScalarColumn(labelColumn), featureColumn, weights, groupId, numLeaves, minDataPerLeaf, learningRate, numBoostRound, advancedSettings)
+            int numBoostRound = LightGBM.Options.Defaults.NumBoostRound)
+            : base(env, LoadNameValue, TrainerUtils.MakeR4ScalarColumn(labelColumn), featureColumn, weights, groupId, numLeaves, minDataPerLeaf, learningRate, numBoostRound)
         {
             Host.CheckNonEmpty(groupId, nameof(groupId));
         }
@@ -124,7 +118,7 @@ namespace Microsoft.ML.LightGBM
             // Check label types.
             var labelCol = data.Schema.Label.Value;
             var labelType = labelCol.Type;
-            if (!(labelType is KeyType || labelType == NumberType.R4))
+            if (!(labelType is KeyType || labelType == NumberDataViewType.Single))
             {
                 throw ch.ExceptParam(nameof(data),
                     $"Label column '{labelCol.Name}' is of type '{labelType}', but must be key or R4.");
@@ -133,23 +127,23 @@ namespace Microsoft.ML.LightGBM
             ch.CheckParam(data.Schema.Group.HasValue, nameof(data), "Need a group column.");
             var groupCol = data.Schema.Group.Value;
             var groupType = groupCol.Type;
-            if (!(groupType == NumberType.U4 || groupType is KeyType))
+            if (!(groupType == NumberDataViewType.UInt32 || groupType is KeyType))
             {
                 throw ch.ExceptParam(nameof(data),
                    $"Group column '{groupCol.Name}' is of type '{groupType}', but must be U4 or a Key.");
             }
         }
 
-        protected override void CheckLabelCompatible(SchemaShape.Column labelCol)
+        private protected override void CheckLabelCompatible(SchemaShape.Column labelCol)
         {
             Contracts.Assert(labelCol.IsValid);
 
             Action error =
-                () => throw Host.ExceptSchemaMismatch(nameof(labelCol), RoleMappedSchema.ColumnRole.Label.Value, labelCol.Name, "R4 or a Key", labelCol.GetTypeString());
+                () => throw Host.ExceptSchemaMismatch(nameof(labelCol), "label", labelCol.Name, "float or KeyType", labelCol.GetTypeString());
 
             if (labelCol.Kind != SchemaShape.Column.VectorKind.Scalar)
                 error();
-            if (!labelCol.IsKey && labelCol.ItemType != NumberType.R4)
+            if (!labelCol.IsKey && labelCol.ItemType != NumberDataViewType.Single)
                 error();
         }
 
@@ -172,44 +166,46 @@ namespace Microsoft.ML.LightGBM
             Options["eval_at"] = "5";
         }
 
-        protected override SchemaShape.Column[] GetOutputColumnsCore(SchemaShape inputSchema)
+        private protected override SchemaShape.Column[] GetOutputColumnsCore(SchemaShape inputSchema)
         {
             return new[]
            {
-                new SchemaShape.Column(DefaultColumnNames.Score, SchemaShape.Column.VectorKind.Scalar, NumberType.R4, false, new SchemaShape(MetadataUtils.GetTrainerOutputMetadata()))
+                new SchemaShape.Column(DefaultColumnNames.Score, SchemaShape.Column.VectorKind.Scalar, NumberDataViewType.Single, false, new SchemaShape(AnnotationUtils.GetTrainerOutputAnnotation()))
             };
         }
 
-        protected override RankingPredictionTransformer<LightGbmRankingModelParameters> MakeTransformer(LightGbmRankingModelParameters model, Schema trainSchema)
+        private protected override RankingPredictionTransformer<LightGbmRankingModelParameters> MakeTransformer(LightGbmRankingModelParameters model, DataViewSchema trainSchema)
          => new RankingPredictionTransformer<LightGbmRankingModelParameters>(Host, model, trainSchema, FeatureColumn.Name);
 
-        public RankingPredictionTransformer<LightGbmRankingModelParameters> Train(IDataView trainData, IDataView validationData = null)
+        /// <summary>
+        /// Trains a <see cref="LightGbmRankingTrainer"/> using both training and validation data, returns
+        /// a <see cref="RankingPredictionTransformer{LightGbmRankingModelParameters}"/>.
+        /// </summary>
+        public RankingPredictionTransformer<LightGbmRankingModelParameters> Fit(IDataView trainData, IDataView validationData)
             => TrainTransformer(trainData, validationData);
     }
 
     /// <summary>
     /// The entry point for the LightGbmRankingTrainer.
     /// </summary>
-    public static partial class LightGbm
+    internal static partial class LightGbm
     {
         [TlcModule.EntryPoint(Name = "Trainers.LightGbmRanker",
             Desc = "Train a LightGBM ranking model.",
             UserName = LightGbmRankingTrainer.UserName,
-            ShortName = LightGbmRankingTrainer.ShortName,
-            XmlInclude = new[] { @"<include file='../Microsoft.ML.LightGBM/doc.xml' path='doc/members/member[@name=""LightGBM""]/*' />",
-                                 @"<include file='../Microsoft.ML.LightGBM/doc.xml' path='doc/members/example[@name=""LightGbmRanker""]/*' />"})]
-        public static CommonOutputs.RankingOutput TrainRanking(IHostEnvironment env, LightGbmArguments input)
+            ShortName = LightGbmRankingTrainer.ShortName)]
+        public static CommonOutputs.RankingOutput TrainRanking(IHostEnvironment env, Options input)
         {
             Contracts.CheckValue(env, nameof(env));
             var host = env.Register("TrainLightGBM");
             host.CheckValue(input, nameof(input));
             EntryPointUtils.CheckInputArgs(host, input);
 
-            return LearnerEntryPointsUtils.Train<LightGbmArguments, CommonOutputs.RankingOutput>(host, input,
+            return TrainerEntryPointsUtils.Train<Options, CommonOutputs.RankingOutput>(host, input,
                 () => new LightGbmRankingTrainer(host, input),
-                getLabel: () => LearnerEntryPointsUtils.FindColumn(host, input.TrainingData.Schema, input.LabelColumn),
-                getWeight: () => LearnerEntryPointsUtils.FindColumn(host, input.TrainingData.Schema, input.WeightColumn),
-                getGroup: () => LearnerEntryPointsUtils.FindColumn(host, input.TrainingData.Schema, input.GroupIdColumn));
+                getLabel: () => TrainerEntryPointsUtils.FindColumn(host, input.TrainingData.Schema, input.LabelColumnName),
+                getWeight: () => TrainerEntryPointsUtils.FindColumn(host, input.TrainingData.Schema, input.ExampleWeightColumnName),
+                getGroup: () => TrainerEntryPointsUtils.FindColumn(host, input.TrainingData.Schema, input.RowGroupColumnName));
         }
     }
 }

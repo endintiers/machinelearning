@@ -3,31 +3,33 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
 using Microsoft.ML.EntryPoints;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Model;
-using Microsoft.ML.TimeSeriesProcessing;
+using Microsoft.ML.Transforms.TimeSeries;
 
 [assembly: LoadableClass(ExponentialAverageTransform.Summary, typeof(ExponentialAverageTransform), typeof(ExponentialAverageTransform.Arguments), typeof(SignatureDataTransform),
     ExponentialAverageTransform.UserName, ExponentialAverageTransform.LoaderSignature, ExponentialAverageTransform.ShortName)]
 [assembly: LoadableClass(ExponentialAverageTransform.Summary, typeof(ExponentialAverageTransform), null, typeof(SignatureLoadDataTransform),
     ExponentialAverageTransform.UserName, ExponentialAverageTransform.LoaderSignature)]
 
-namespace Microsoft.ML.TimeSeriesProcessing
+namespace Microsoft.ML.Transforms.TimeSeries
 {
     /// <summary>
     /// ExponentialAverageTransform is a weighted average of the values: ExpAvg(y_t) = a * y_t + (1-a) * ExpAvg(y_(t-1)).
     /// </summary>
-    public sealed class ExponentialAverageTransform : SequentialTransformBase<Single, Single, ExponentialAverageTransform.State>
+    internal sealed class ExponentialAverageTransform : SequentialTransformBase<Single, Single, ExponentialAverageTransform.State>
     {
         public const string Summary = "Applies a Exponential average on a time series.";
         public const string LoaderSignature = "ExpAverageTransform";
         public const string UserName = "Exponential Average Transform";
         public const string ShortName = "ExpAvg";
 
+#pragma warning disable 0649
         public sealed class Arguments : TransformInputBase
         {
             [Argument(ArgumentType.Required, HelpText = "The name of the source column", ShortName = "src",
@@ -42,6 +44,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
                 ShortName = "d", SortOrder = 4)]
             public Single Decay = 0.9f;
         }
+#pragma warning restore 0649
 
         private static VersionInfo GetVersionInfo()
         {
@@ -57,7 +60,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
         private readonly Single _decay;
 
         public ExponentialAverageTransform(IHostEnvironment env, Arguments args, IDataView input)
-            : base(1, 1, args.Source, args.Name, LoaderSignature, env, input)
+            : base(1, 1, args.Name, args.Source, LoaderSignature, env, input)
         {
             Host.CheckUserArg(0 <= args.Decay && args.Decay <= 1, nameof(args.Decay), "Should be in [0, 1].");
             _decay = args.Decay;
@@ -76,7 +79,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
             Host.CheckDecode(WindowSize == 1);
         }
 
-        public override void Save(ModelSaveContext ctx)
+        private protected override void SaveModel(ModelSaveContext ctx)
         {
             Host.CheckValue(ctx, nameof(ctx));
             Host.Assert(WindowSize >= 1);
@@ -88,7 +91,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
             // <base>
             // Single _decay
 
-            base.Save(ctx);
+            base.SaveModel(ctx);
             ctx.Writer.Write(_decay);
         }
 

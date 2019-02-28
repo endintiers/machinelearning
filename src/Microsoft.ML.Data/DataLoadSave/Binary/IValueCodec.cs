@@ -4,6 +4,7 @@
 
 using System;
 using System.IO;
+using Microsoft.Data.DataView;
 
 namespace Microsoft.ML.Data.IO
 {
@@ -37,7 +38,7 @@ namespace Microsoft.ML.Data.IO
         /// <summary>
         /// The column type for this codec.
         /// </summary>
-        ColumnType Type { get; }
+        DataViewType Type { get; }
     }
 
     /// <summary>

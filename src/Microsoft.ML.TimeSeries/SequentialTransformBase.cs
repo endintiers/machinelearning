@@ -3,13 +3,15 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
+using System.Collections.Generic;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Data;
 using Microsoft.ML.Data.IO;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.Model;
 using Microsoft.ML.Transforms;
 
-namespace Microsoft.ML.TimeSeriesProcessing
+namespace Microsoft.ML.Transforms.TimeSeries
 {
     /// <summary>
     /// The box class that is used to box the TInput and TOutput for the LambdaTransform.
@@ -36,7 +38,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
     /// <typeparam name="TInput">The input type of the sequential processing.</typeparam>
     /// <typeparam name="TOutput">The dst type of the sequential processing.</typeparam>
     /// <typeparam name="TState">The state type of the sequential processing. Must be a class inherited from StateBase </typeparam>
-    public abstract class SequentialTransformBase<TInput, TOutput, TState> : TransformBase
+    internal abstract class SequentialTransformBase<TInput, TOutput, TState> : TransformBase
        where TState : SequentialTransformBase<TInput, TOutput, TState>.StateBase, new()
     {
         /// <summary>
@@ -210,8 +212,8 @@ namespace Microsoft.ML.TimeSeriesProcessing
         protected string InputColumnName;
         protected string OutputColumnName;
 
-        private static IDataTransform CreateLambdaTransform(IHost host, IDataView input, string inputColumnName, string outputColumnName,
-            Action<TState> initFunction, bool hasBuffer, ColumnType outputColTypeOverride)
+        private static IDataTransform CreateLambdaTransform(IHost host, IDataView input, string outputColumnName, string inputColumnName,
+            Action<TState> initFunction, bool hasBuffer, DataViewType outputColTypeOverride)
         {
             var inputSchema = SchemaDefinition.Create(typeof(DataBox<TInput>));
             inputSchema[0].ColumnName = inputColumnName;
@@ -236,20 +238,20 @@ namespace Microsoft.ML.TimeSeriesProcessing
         /// </summary>
         /// <param name="windowSize">The size of buffer used for windowed buffering.</param>
         /// <param name="initialWindowSize">The number of datapoints picked from the beginning of the series for training the transform parameters if needed.</param>
-        /// <param name="inputColumnName">The name of the input column.</param>
         /// <param name="outputColumnName">The name of the dst column.</param>
-        /// <param name="name"></param>
+        /// <param name="inputColumnName">The name of the input column.</param>
+        /// <param name="name">Name of the extending type.</param>
         /// <param name="env">A reference to the environment variable.</param>
         /// <param name="input">A reference to the input data view.</param>
         /// <param name="outputColTypeOverride"></param>
-        private protected SequentialTransformBase(int windowSize, int initialWindowSize, string inputColumnName, string outputColumnName,
-            string name, IHostEnvironment env, IDataView input, ColumnType outputColTypeOverride = null)
-            : this(windowSize, initialWindowSize, inputColumnName, outputColumnName, Contracts.CheckRef(env, nameof(env)).Register(name), input, outputColTypeOverride)
+        private protected SequentialTransformBase(int windowSize, int initialWindowSize, string outputColumnName, string inputColumnName,
+            string name, IHostEnvironment env, IDataView input, DataViewType outputColTypeOverride = null)
+            : this(windowSize, initialWindowSize, outputColumnName, inputColumnName, Contracts.CheckRef(env, nameof(env)).Register(name), input, outputColTypeOverride)
         {
         }
 
-        private protected SequentialTransformBase(int windowSize, int initialWindowSize, string inputColumnName, string outputColumnName,
-            IHost host, IDataView input, ColumnType outputColTypeOverride = null)
+        private protected SequentialTransformBase(int windowSize, int initialWindowSize, string outputColumnName, string inputColumnName,
+            IHost host, IDataView input, DataViewType outputColTypeOverride = null)
             : base(host, input)
         {
             Contracts.AssertValue(Host);
@@ -265,7 +267,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
             InitialWindowSize = initialWindowSize;
             WindowSize = windowSize;
 
-            _transform = CreateLambdaTransform(Host, input, InputColumnName, OutputColumnName, InitFunction, WindowSize > 0, outputColTypeOverride);
+            _transform = CreateLambdaTransform(Host, input, OutputColumnName, InputColumnName, InitFunction, WindowSize > 0, outputColTypeOverride);
         }
 
         private protected SequentialTransformBase(IHostEnvironment env, ModelLoadContext ctx, string name, IDataView input)
@@ -276,7 +278,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
             // *** Binary format ***
             // int: _windowSize
             // int: _initialWindowSize
-            // int (string ID): _inputColumnName
+            // int (string ID): _sourceColumnName
             // int (string ID): _outputColumnName
             // ColumnType: _transform.Schema.GetColumnType(0)
 
@@ -295,12 +297,12 @@ namespace Microsoft.ML.TimeSeriesProcessing
             WindowSize = windowSize;
 
             BinarySaver bs = new BinarySaver(Host, new BinarySaver.Arguments());
-            ColumnType ct = bs.LoadTypeDescriptionOrNull(ctx.Reader.BaseStream);
+            DataViewType ct = bs.LoadTypeDescriptionOrNull(ctx.Reader.BaseStream);
 
-            _transform = CreateLambdaTransform(Host, input, InputColumnName, OutputColumnName, InitFunction, WindowSize > 0, ct);
+            _transform = CreateLambdaTransform(Host, input, OutputColumnName, InputColumnName, InitFunction, WindowSize > 0, ct);
         }
 
-        public override void Save(ModelSaveContext ctx)
+        private protected override void SaveModel(ModelSaveContext ctx)
         {
             Host.CheckValue(ctx, nameof(ctx));
             Host.Assert(InitialWindowSize >= 0);
@@ -309,7 +311,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
             // *** Binary format ***
             // int: _windowSize
             // int: _initialWindowSize
-            // int (string ID): _inputColumnName
+            // int (string ID): _sourceColumnName
             // int (string ID): _outputColumnName
             // ColumnType: _transform.Schema.GetColumnType(0)
 
@@ -323,7 +325,7 @@ namespace Microsoft.ML.TimeSeriesProcessing
 
             int colIndex;
             if (!_transform.Schema.TryGetColumnIndex(OutputColumnName, out colIndex))
-                throw Host.Except(String.Format("The column {0} does not exist in the schema.", OutputColumnName));
+                throw Host.ExceptSchemaMismatch(nameof(_transform.Schema), "output", OutputColumnName);
 
             bs.TryWriteTypeDescription(ctx.Writer.BaseStream, _transform.Schema[colIndex].Type, out byteWritten);
         }
@@ -351,23 +353,21 @@ namespace Microsoft.ML.TimeSeriesProcessing
             return false;
         }
 
-        protected override RowCursor GetRowCursorCore(Func<int, bool> predicate, Random rand = null)
+        protected override DataViewRowCursor GetRowCursorCore(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null)
         {
-            var srcCursor = _transform.GetRowCursor(predicate, rand);
+            var srcCursor = _transform.GetRowCursor(columnsNeeded, rand);
             return new Cursor(this, srcCursor);
         }
 
-        public override Schema OutputSchema => _transform.Schema;
+        public override DataViewSchema OutputSchema => _transform.Schema;
 
         public override long? GetRowCount()
         {
             return _transform.GetRowCount();
         }
 
-        public override RowCursor[] GetRowCursorSet(Func<int, bool> predicate, int n, Random rand = null)
-        {
-            return new RowCursor[] { GetRowCursorCore(predicate, rand) };
-        }
+        public override DataViewRowCursor[] GetRowCursorSet(IEnumerable<DataViewSchema.Column> columnsNeeded, int n, Random rand = null)
+            => new DataViewRowCursor[] { GetRowCursorCore(columnsNeeded, rand) };
 
         /// <summary>
         /// A wrapper around the cursor which replaces the schema.
@@ -376,14 +376,14 @@ namespace Microsoft.ML.TimeSeriesProcessing
         {
             private readonly SequentialTransformBase<TInput, TOutput, TState> _parent;
 
-            public Cursor(SequentialTransformBase<TInput, TOutput, TState> parent, RowCursor input)
+            public Cursor(SequentialTransformBase<TInput, TOutput, TState> parent, DataViewRowCursor input)
                 : base(parent.Host, input)
             {
                 Ch.Assert(input.Schema.Count == parent.OutputSchema.Count);
                 _parent = parent;
             }
 
-            public override Schema Schema { get { return _parent.OutputSchema; } }
+            public override DataViewSchema Schema { get { return _parent.OutputSchema; } }
 
             public override bool IsColumnActive(int col)
             {

@@ -4,6 +4,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Data;
 using Microsoft.ML.Internal.Utilities;
 using Microsoft.ML.RunTests;
@@ -23,7 +25,7 @@ namespace Microsoft.ML.Core.Tests.UnitTests
             return false;
         }
 
-        protected bool EqualTypes(ColumnType type1, ColumnType type2, bool exactTypes)
+        protected bool EqualTypes(DataViewType type1, DataViewType type2, bool exactTypes)
         {
             Contracts.AssertValue(type1);
             Contracts.AssertValue(type2);
@@ -33,13 +35,13 @@ namespace Microsoft.ML.Core.Tests.UnitTests
             return !exactTypes && type1 is VectorType vt1 && type2 is VectorType vt2 && vt1.ItemType.Equals(vt2.ItemType) && vt1.Size == vt2.Size;
         }
 
-        protected Func<bool> GetIdComparer(Row r1, Row r2, out ValueGetter<RowId> idGetter)
+        protected Func<bool> GetIdComparer(DataViewRow r1, DataViewRow r2, out ValueGetter<DataViewRowId> idGetter)
         {
             var g1 = r1.GetIdGetter();
             idGetter = g1;
             var g2 = r2.GetIdGetter();
-            RowId v1 = default(RowId);
-            RowId v2 = default(RowId);
+            DataViewRowId v1 = default(DataViewRowId);
+            DataViewRowId v2 = default(DataViewRowId);
             return
                 () =>
                 {
@@ -49,7 +51,7 @@ namespace Microsoft.ML.Core.Tests.UnitTests
                 };
         }
 
-        protected Func<bool> GetComparerOne<T>(Row r1, Row r2, int col, Func<T, T, bool> fn)
+        protected Func<bool> GetComparerOne<T>(DataViewRow r1, DataViewRow r2, int col, Func<T, T, bool> fn)
         {
             var g1 = r1.GetGetter<T>(col);
             var g2 = r2.GetGetter<T>(col);
@@ -72,7 +74,7 @@ namespace Microsoft.ML.Core.Tests.UnitTests
             // bitwise comparison is needed because Abs(Inf-Inf) and Abs(NaN-NaN) are not 0s.
             return FloatUtils.GetBits(x) == FloatUtils.GetBits(y) || Math.Abs(x - y) < DoubleEps;
         }
-        protected Func<bool> GetComparerVec<T>(Row r1, Row r2, int col, int size, Func<T, T, bool> fn)
+        protected Func<bool> GetComparerVec<T>(DataViewRow r1, DataViewRow r2, int col, int size, Func<T, T, bool> fn)
         {
             var g1 = r1.GetGetter<VBuffer<T>>(col);
             var g2 = r2.GetGetter<VBuffer<T>>(col);
@@ -152,7 +154,7 @@ namespace Microsoft.ML.Core.Tests.UnitTests
                     return false;
             }
         }
-        protected Func<bool> GetColumnComparer(Row r1, Row r2, int col, ColumnType type, bool exactDoubles)
+        protected Func<bool> GetColumnComparer(DataViewRow r1, DataViewRow r2, int col, DataViewType type, bool exactDoubles)
         {
             if (type is VectorType vecType)
             {
@@ -163,41 +165,41 @@ namespace Microsoft.ML.Core.Tests.UnitTests
 
                 switch (kind)
                 {
-                    case DataKind.I1:
+                    case InternalDataKind.I1:
                         return GetComparerVec<sbyte>(r1, r2, col, size, (x, y) => x == y);
-                    case DataKind.U1:
+                    case InternalDataKind.U1:
                         return GetComparerVec<byte>(r1, r2, col, size, (x, y) => x == y);
-                    case DataKind.I2:
+                    case InternalDataKind.I2:
                         return GetComparerVec<short>(r1, r2, col, size, (x, y) => x == y);
-                    case DataKind.U2:
+                    case InternalDataKind.U2:
                         return GetComparerVec<ushort>(r1, r2, col, size, (x, y) => x == y);
-                    case DataKind.I4:
+                    case InternalDataKind.I4:
                         return GetComparerVec<int>(r1, r2, col, size, (x, y) => x == y);
-                    case DataKind.U4:
+                    case InternalDataKind.U4:
                         return GetComparerVec<uint>(r1, r2, col, size, (x, y) => x == y);
-                    case DataKind.I8:
+                    case InternalDataKind.I8:
                         return GetComparerVec<long>(r1, r2, col, size, (x, y) => x == y);
-                    case DataKind.U8:
+                    case InternalDataKind.U8:
                         return GetComparerVec<ulong>(r1, r2, col, size, (x, y) => x == y);
-                    case DataKind.R4:
+                    case InternalDataKind.R4:
                         return GetComparerVec<Single>(r1, r2, col, size, (x, y) => FloatUtils.GetBits(x) == FloatUtils.GetBits(y));
-                    case DataKind.R8:
+                    case InternalDataKind.R8:
                         if (exactDoubles)
                             return GetComparerVec<Double>(r1, r2, col, size, (x, y) => FloatUtils.GetBits(x) == FloatUtils.GetBits(y));
                         else
                             return GetComparerVec<Double>(r1, r2, col, size, EqualWithEps);
-                    case DataKind.Text:
+                    case InternalDataKind.Text:
                         return GetComparerVec<ReadOnlyMemory<char>>(r1, r2, col, size, (a, b) => a.Span.SequenceEqual(b.Span));
-                    case DataKind.Bool:
+                    case InternalDataKind.Bool:
                         return GetComparerVec<bool>(r1, r2, col, size, (x, y) => x == y);
-                    case DataKind.TimeSpan:
+                    case InternalDataKind.TimeSpan:
                         return GetComparerVec<TimeSpan>(r1, r2, col, size, (x, y) => x.Ticks == y.Ticks);
-                    case DataKind.DT:
+                    case InternalDataKind.DT:
                         return GetComparerVec<DateTime>(r1, r2, col, size, (x, y) => x.Ticks == y.Ticks);
-                    case DataKind.DZ:
+                    case InternalDataKind.DZ:
                         return GetComparerVec<DateTimeOffset>(r1, r2, col, size, (x, y) => x.Equals(y));
-                    case DataKind.UG:
-                        return GetComparerVec<RowId>(r1, r2, col, size, (x, y) => x.Equals(y));
+                    case InternalDataKind.UG:
+                        return GetComparerVec<DataViewRowId>(r1, r2, col, size, (x, y) => x.Equals(y));
                 }
             }
             else
@@ -206,41 +208,41 @@ namespace Microsoft.ML.Core.Tests.UnitTests
                 Contracts.Assert(result);
                 switch (kind)
                 {
-                    case DataKind.I1:
+                    case InternalDataKind.I1:
                         return GetComparerOne<sbyte>(r1, r2, col, (x, y) => x == y);
-                    case DataKind.U1:
+                    case InternalDataKind.U1:
                         return GetComparerOne<byte>(r1, r2, col, (x, y) => x == y);
-                    case DataKind.I2:
+                    case InternalDataKind.I2:
                         return GetComparerOne<short>(r1, r2, col, (x, y) => x == y);
-                    case DataKind.U2:
+                    case InternalDataKind.U2:
                         return GetComparerOne<ushort>(r1, r2, col, (x, y) => x == y);
-                    case DataKind.I4:
+                    case InternalDataKind.I4:
                         return GetComparerOne<int>(r1, r2, col, (x, y) => x == y);
-                    case DataKind.U4:
+                    case InternalDataKind.U4:
                         return GetComparerOne<uint>(r1, r2, col, (x, y) => x == y);
-                    case DataKind.I8:
+                    case InternalDataKind.I8:
                         return GetComparerOne<long>(r1, r2, col, (x, y) => x == y);
-                    case DataKind.U8:
+                    case InternalDataKind.U8:
                         return GetComparerOne<ulong>(r1, r2, col, (x, y) => x == y);
-                    case DataKind.R4:
+                    case InternalDataKind.R4:
                         return GetComparerOne<Single>(r1, r2, col, (x, y) => FloatUtils.GetBits(x) == FloatUtils.GetBits(y));
-                    case DataKind.R8:
+                    case InternalDataKind.R8:
                         if (exactDoubles)
                             return GetComparerOne<Double>(r1, r2, col, (x, y) => FloatUtils.GetBits(x) == FloatUtils.GetBits(y));
                         else
                             return GetComparerOne<Double>(r1, r2, col, EqualWithEps);
-                    case DataKind.Text:
+                    case InternalDataKind.Text:
                         return GetComparerOne<ReadOnlyMemory<char>>(r1, r2, col, (a, b) => a.Span.SequenceEqual(b.Span));
-                    case DataKind.Bool:
+                    case InternalDataKind.Bool:
                         return GetComparerOne<bool>(r1, r2, col, (x, y) => x == y);
-                    case DataKind.TimeSpan:
+                    case InternalDataKind.TimeSpan:
                         return GetComparerOne<TimeSpan>(r1, r2, col, (x, y) => x.Ticks == y.Ticks);
-                    case DataKind.DT:
+                    case InternalDataKind.DT:
                         return GetComparerOne<DateTime>(r1, r2, col, (x, y) => x.Ticks == y.Ticks);
-                    case DataKind.DZ:
+                    case InternalDataKind.DZ:
                         return GetComparerOne<DateTimeOffset>(r1, r2, col, (x, y) => x.Equals(y));
-                    case DataKind.UG:
-                        return GetComparerOne<RowId>(r1, r2, col, (x, y) => x.Equals(y));
+                    case InternalDataKind.UG:
+                        return GetComparerOne<DataViewRowId>(r1, r2, col, (x, y) => x.Equals(y));
                 }
             }
 
@@ -271,8 +273,8 @@ namespace Microsoft.ML.Core.Tests.UnitTests
             bool all = true;
             bool tmp;
 
-            using (var curs1 = view1.GetRowCursor(col => true))
-            using (var curs2 = view2.GetRowCursor(col => true))
+            using (var curs1 = view1.GetRowCursorForAllColumns())
+            using (var curs2 = view2.GetRowCursorForAllColumns())
             {
                 Check(curs1.Schema == view1.Schema, "Schema of view 1 and its cursor differed");
                 Check(curs2.Schema == view2.Schema, "Schema of view 2 and its cursor differed");
@@ -281,8 +283,9 @@ namespace Microsoft.ML.Core.Tests.UnitTests
             Check(tmp, "All same failed");
             all &= tmp;
 
-            using (var curs1 = view1.GetRowCursor(col => true))
-            using (var curs2 = view2.GetRowCursor(col => (col & 1) == 0, null))
+            var view2EvenCols = view2.Schema.Where(col => (col.Index & 1) == 0);
+            using (var curs1 = view1.GetRowCursorForAllColumns())
+            using (var curs2 = view2.GetRowCursor(view2EvenCols))
             {
                 Check(curs1.Schema == view1.Schema, "Schema of view 1 and its cursor differed");
                 Check(curs2.Schema == view2.Schema, "Schema of view 2 and its cursor differed");
@@ -291,8 +294,9 @@ namespace Microsoft.ML.Core.Tests.UnitTests
             Check(tmp, "Even same failed");
             all &= tmp;
 
-            using (var curs1 = view1.GetRowCursor(col => true))
-            using (var curs2 = view2.GetRowCursor(col => (col & 1) != 0, null))
+            var view2OddCols = view2.Schema.Where(col => (col.Index & 1) == 0);
+            using (var curs1 = view1.GetRowCursorForAllColumns())
+            using (var curs2 = view2.GetRowCursor(view2OddCols))
             {
                 Check(curs1.Schema == view1.Schema, "Schema of view 1 and its cursor differed");
                 Check(curs2.Schema == view2.Schema, "Schema of view 2 and its cursor differed");
@@ -300,7 +304,7 @@ namespace Microsoft.ML.Core.Tests.UnitTests
             }
             Check(tmp, "Odd same failed");
 
-            using (var curs1 = view1.GetRowCursor(col => true))
+            using (var curs1 = view1.GetRowCursor(view1.Schema))
             {
                 Check(curs1.Schema == view1.Schema, "Schema of view 1 and its cursor differed");
                 tmp = CheckSameValues(curs1, view2, exactTypes, exactDoubles, checkId);
@@ -311,7 +315,7 @@ namespace Microsoft.ML.Core.Tests.UnitTests
             return all;
         }
 
-        protected bool CheckSameValues(RowCursor curs1, RowCursor curs2, bool exactTypes, bool exactDoubles, bool checkId, bool checkIdCollisions = true)
+        protected bool CheckSameValues(DataViewRowCursor curs1, DataViewRowCursor curs2, bool exactTypes, bool exactDoubles, bool checkId, bool checkIdCollisions = true)
         {
             Contracts.Assert(curs1.Schema.Count == curs2.Schema.Count);
 
@@ -335,13 +339,13 @@ namespace Microsoft.ML.Core.Tests.UnitTests
                     comps[col] = GetColumnComparer(curs1, curs2, col, type1, exactDoubles);
                 }
             }
-            ValueGetter<RowId> idGetter = null;
+            ValueGetter<DataViewRowId> idGetter = null;
             Func<bool> idComp = checkId ? GetIdComparer(curs1, curs2, out idGetter) : null;
-            HashSet<RowId> idsSeen = null;
+            HashSet<DataViewRowId> idsSeen = null;
             if (checkIdCollisions && idGetter == null)
                 idGetter = curs1.GetIdGetter();
             long idCollisions = 0;
-            RowId id = default(RowId);
+            DataViewRowId id = default(DataViewRowId);
 
             for (; ; )
             {
@@ -391,20 +395,20 @@ namespace Microsoft.ML.Core.Tests.UnitTests
             }
         }
 
-        protected bool CheckSameValues(RowCursor curs1, IDataView view2, bool exactTypes = true, bool exactDoubles = true, bool checkId = true)
+        protected bool CheckSameValues(DataViewRowCursor curs1, IDataView view2, bool exactTypes = true, bool exactDoubles = true, bool checkId = true)
         {
             Contracts.Assert(curs1.Schema.Count == view2.Schema.Count);
 
             // Get a cursor for each column.
             int colLim = curs1.Schema.Count;
-            var cursors = new RowCursor[colLim];
+            var cursors = new DataViewRowCursor[colLim];
             try
             {
                 for (int col = 0; col < colLim; col++)
                 {
                     // curs1 should have all columns active (for simplicity of the code here).
                     Contracts.Assert(curs1.IsColumnActive(col));
-                    cursors[col] = view2.GetRowCursor(c => c == col);
+                    cursors[col] = view2.GetRowCursor(view2.Schema[col]);
                 }
 
                 // Get the comparison delegates for each column.
@@ -422,7 +426,7 @@ namespace Microsoft.ML.Core.Tests.UnitTests
                         return Failed();
                     }
                     comps[col] = GetColumnComparer(curs1, cursors[col], col, type1, exactDoubles);
-                    ValueGetter<RowId> idGetter;
+                    ValueGetter<DataViewRowId> idGetter;
                     idComps[col] = checkId ? GetIdComparer(curs1, cursors[col], out idGetter) : null;
                 }
 

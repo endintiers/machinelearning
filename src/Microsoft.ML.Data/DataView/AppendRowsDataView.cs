@@ -3,8 +3,10 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Internal.Utilities;
 
 namespace Microsoft.ML.Data
@@ -25,19 +27,20 @@ namespace Microsoft.ML.Data
     ///
     /// An AppendRowsDataView instance is shuffleable iff all of its sources are shuffleable and their row counts are known.
     /// </summary>
-    public sealed class AppendRowsDataView : IDataView
+    [BestFriend]
+    internal sealed class AppendRowsDataView : IDataView
     {
         public const string RegistrationName = "AppendRowsDataView";
 
         private readonly IDataView[] _sources;
         private readonly int[] _counts;
-        private readonly Schema _schema;
+        private readonly DataViewSchema _schema;
         private readonly IHost _host;
         private readonly bool _canShuffle;
 
         public bool CanShuffle { get { return _canShuffle; } }
 
-        public Schema Schema { get { return _schema; } }
+        public DataViewSchema Schema { get { return _schema; } }
 
         // REVIEW: AppendRowsDataView now only checks schema consistency up to column names and types.
         // A future task will be to ensure that the sources are consistent on the metadata level.
@@ -52,7 +55,7 @@ namespace Microsoft.ML.Data
         /// <param name="schema">The schema for the result. If this is null, the first source's schema will be used.</param>
         /// <param name="sources">The sources to be appended.</param>
         /// <returns>The resulting IDataView.</returns>
-        public static IDataView Create(IHostEnvironment env, Schema schema, params IDataView[] sources)
+        public static IDataView Create(IHostEnvironment env, DataViewSchema schema, params IDataView[] sources)
         {
             Contracts.CheckValue(env, nameof(env));
             env.CheckValue(sources, nameof(sources));
@@ -64,7 +67,7 @@ namespace Microsoft.ML.Data
             return new AppendRowsDataView(env, schema, sources);
         }
 
-        private AppendRowsDataView(IHostEnvironment env, Schema schema, IDataView[] sources)
+        private AppendRowsDataView(IHostEnvironment env, DataViewSchema schema, IDataView[] sources)
         {
             Contracts.CheckValue(env, nameof(env));
             _host = env.Register(RegistrationName);
@@ -114,7 +117,7 @@ namespace Microsoft.ML.Data
             for (int c = 0; c < colCount; c++)
             {
                 string name = _schema[c].Name;
-                ColumnType type = _schema[c].Type;
+                DataViewType type = _schema[c].Type;
 
                 for (int i = startingSchemaIndex; i < _sources.Length; i++)
                 {
@@ -143,17 +146,16 @@ namespace Microsoft.ML.Data
             return sum;
         }
 
-        public RowCursor GetRowCursor(Func<int, bool> needCol, Random rand = null)
+        public DataViewRowCursor GetRowCursor(IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand = null)
         {
-            _host.CheckValue(needCol, nameof(needCol));
             if (rand == null || !_canShuffle)
-                return new Cursor(this, needCol);
-            return new RandCursor(this, needCol, rand, _counts);
+                return new Cursor(this, columnsNeeded);
+            return new RandCursor(this, columnsNeeded, rand, _counts);
         }
 
-        public RowCursor[] GetRowCursorSet(Func<int, bool> predicate, int n, Random rand = null)
+        public DataViewRowCursor[] GetRowCursorSet(IEnumerable<DataViewSchema.Column> columnsNeeded, int n, Random rand = null)
         {
-            return new RowCursor[] { GetRowCursor(predicate, rand) };
+            return new DataViewRowCursor[] { GetRowCursor(columnsNeeded, rand) };
         }
 
         private abstract class CursorBase : RootCursorBase
@@ -163,7 +165,7 @@ namespace Microsoft.ML.Data
 
             public override long Batch => 0;
 
-            public sealed override Schema Schema { get; }
+            public sealed override DataViewSchema Schema { get; }
 
             public CursorBase(AppendRowsDataView parent)
                 : base(parent._host)
@@ -176,7 +178,7 @@ namespace Microsoft.ML.Data
 
             protected Delegate CreateGetter(int col)
             {
-                ColumnType colType = Schema[col].Type;
+                DataViewType colType = Schema[col].Type;
                 Ch.AssertValue(colType);
                 Func<int, Delegate> creator = CreateTypedGetter<int>;
                 var typedCreator = creator.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(colType.RawType);
@@ -205,36 +207,33 @@ namespace Microsoft.ML.Data
         /// </summary>
         private sealed class Cursor : CursorBase
         {
-            private RowCursor _currentCursor;
-            private ValueGetter<RowId> _currentIdGetter;
+            private DataViewRowCursor _currentCursor;
+            private ValueGetter<DataViewRowId> _currentIdGetter;
             private int _currentSourceIndex;
+            private bool _disposed;
 
-            public Cursor(AppendRowsDataView parent, Func<int, bool> needCol)
+            public Cursor(AppendRowsDataView parent, IEnumerable<DataViewSchema.Column> columnsNeeded)
                 : base(parent)
             {
-                Ch.AssertValue(needCol);
-
                 _currentSourceIndex = 0;
-                _currentCursor = Sources[_currentSourceIndex].GetRowCursor(needCol);
+                _currentCursor = Sources[_currentSourceIndex].GetRowCursor(columnsNeeded);
                 _currentIdGetter = _currentCursor.GetIdGetter();
-                for (int c = 0; c < Getters.Length; c++)
-                {
-                    if (needCol(c))
-                        Getters[c] = CreateGetter(c);
-                }
+
+                foreach(var col in columnsNeeded)
+                    Getters[col.Index] = CreateGetter(col.Index);
             }
 
-            public override ValueGetter<RowId> GetIdGetter()
+            public override ValueGetter<DataViewRowId> GetIdGetter()
             {
                 return
-                    (ref RowId val) =>
+                    (ref DataViewRowId val) =>
                     {
                         _currentIdGetter(ref val);
                         // While the union of all IDs may not be acceptable, by taking each
                         // data views IDs and combining them against their source index, the
                         // union of these IDs becomes acceptable.
                         // REVIEW: Convenience RowId constructor for this scenario?
-                        val = val.Combine(new RowId((ulong)_currentSourceIndex, 0));
+                        val = val.Combine(new DataViewRowId((ulong)_currentSourceIndex, 0));
                     };
             }
 
@@ -247,7 +246,7 @@ namespace Microsoft.ML.Data
                 return
                     (ref TValue val) =>
                     {
-                        Ch.Check(State == CursorState.Good, "A getter can only be used when the cursor state is Good.");
+                        Ch.Check(Position >= 0, RowCursorUtils.FetchValueStateError);
                         if (_currentSourceIndex != capturedSourceIndex)
                         {
                             Ch.Assert(0 <= _currentSourceIndex && _currentSourceIndex < Sources.Length);
@@ -269,7 +268,9 @@ namespace Microsoft.ML.Data
                     _currentCursor = null;
                     if (++_currentSourceIndex >= Sources.Length)
                         return false;
-                    _currentCursor = Sources[_currentSourceIndex].GetRowCursor(c => IsColumnActive(c));
+
+                    var columnsNeeded = Schema.Where(col => IsColumnActive(col.Index));
+                    _currentCursor = Sources[_currentSourceIndex].GetRowCursor(columnsNeeded);
                     _currentIdGetter = _currentCursor.GetIdGetter();
                 }
 
@@ -278,13 +279,14 @@ namespace Microsoft.ML.Data
 
             protected override void Dispose(bool disposing)
             {
-                if (State == CursorState.Done)
+                if (_disposed)
                     return;
                 if (disposing)
                 {
                     Ch.Dispose();
                     _currentCursor?.Dispose();
                 }
+                _disposed = true;
                 base.Dispose(disposing);
             }
         }
@@ -296,46 +298,44 @@ namespace Microsoft.ML.Data
         /// </summary>
         private sealed class RandCursor : CursorBase
         {
-            private readonly RowCursor[] _cursorSet;
+            private readonly DataViewRowCursor[] _cursorSet;
             private readonly MultinomialWithoutReplacementSampler _sampler;
             private readonly Random _rand;
             private int _currentSourceIndex;
+            private bool _disposed;
 
-            public RandCursor(AppendRowsDataView parent, Func<int, bool> needCol, Random rand, int[] counts)
+            public RandCursor(AppendRowsDataView parent, IEnumerable<DataViewSchema.Column> columnsNeeded, Random rand, int[] counts)
                 : base(parent)
             {
-                Ch.AssertValue(needCol);
                 Ch.AssertValue(rand);
 
                 _rand = rand;
                 Ch.AssertValue(counts);
                 Ch.Assert(Sources.Length == counts.Length);
-                _cursorSet = new RowCursor[counts.Length];
+                _cursorSet = new DataViewRowCursor[counts.Length];
                 for (int i = 0; i < counts.Length; i++)
                 {
                     Ch.Assert(counts[i] >= 0);
-                    _cursorSet[i] = parent._sources[i].GetRowCursor(needCol, RandomUtils.Create(_rand));
+                    _cursorSet[i] = parent._sources[i].GetRowCursor(columnsNeeded, RandomUtils.Create(_rand));
                 }
                 _sampler = new MultinomialWithoutReplacementSampler(Ch, counts, rand);
                 _currentSourceIndex = -1;
-                for (int c = 0; c < Getters.Length; c++)
-                {
-                    if (needCol(c))
-                        Getters[c] = CreateGetter(c);
-                }
+
+                foreach(var col in columnsNeeded)
+                    Getters[col.Index] = CreateGetter(col.Index);
             }
 
-            public override ValueGetter<RowId> GetIdGetter()
+            public override ValueGetter<DataViewRowId> GetIdGetter()
             {
-                ValueGetter<RowId>[] idGetters = new ValueGetter<RowId>[_cursorSet.Length];
+                ValueGetter<DataViewRowId>[] idGetters = new ValueGetter<DataViewRowId>[_cursorSet.Length];
                 for (int i = 0; i < _cursorSet.Length; ++i)
                     idGetters[i] = _cursorSet[i].GetIdGetter();
                 return
-                    (ref RowId val) =>
+                    (ref DataViewRowId val) =>
                     {
-                        Ch.Check(IsGood, "Cannot call ID getter in current state");
+                        Ch.Check(IsGood, RowCursorUtils.FetchValueStateError);
                         idGetters[_currentSourceIndex](ref val);
-                        val = val.Combine(new RowId((ulong)_currentSourceIndex, 0));
+                        val = val.Combine(new DataViewRowId((ulong)_currentSourceIndex, 0));
                     };
             }
 
@@ -345,7 +345,7 @@ namespace Microsoft.ML.Data
                 return
                     (ref TValue val) =>
                     {
-                        Ch.Check(State == CursorState.Good, "A getter can only be used when the cursor state is Good.");
+                        Ch.Check(Position >= 0, RowCursorUtils.FetchValueStateError);
                         Ch.Assert(0 <= _currentSourceIndex && _currentSourceIndex < Sources.Length);
                         if (getSrc[_currentSourceIndex] == null)
                             getSrc[_currentSourceIndex] = _cursorSet[_currentSourceIndex].GetGetter<TValue>(col);
@@ -368,14 +368,15 @@ namespace Microsoft.ML.Data
 
             protected override void Dispose(bool disposing)
             {
-                if (State == CursorState.Done)
+                if (_disposed)
                     return;
                 if (disposing)
                 {
                     Ch.Dispose();
-                    foreach (RowCursor c in _cursorSet)
+                    foreach (DataViewRowCursor c in _cursorSet)
                         c.Dispose();
                 }
+                _disposed = true;
                 base.Dispose(disposing);
             }
         }

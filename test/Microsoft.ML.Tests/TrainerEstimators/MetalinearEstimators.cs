@@ -2,13 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using Microsoft.ML.Calibrators;
 using Microsoft.ML.Data;
-using Microsoft.ML.Internal.Calibration;
 using Microsoft.ML.RunTests;
 using Microsoft.ML.Trainers;
-using Microsoft.ML.Trainers.Online;
 using Microsoft.ML.Transforms;
-using Microsoft.ML.Transforms.Conversions;
 using Xunit;
 
 namespace Microsoft.ML.Tests.TrainerEstimators
@@ -22,14 +20,14 @@ namespace Microsoft.ML.Tests.TrainerEstimators
         public void OVAWithAllConstructorArgs()
         {
             var (pipeline, data) = GetMultiClassPipeline();
-            var calibrator = new PlattCalibratorTrainer(Env);
-            var averagePerceptron = new AveragedPerceptronTrainer(Env, "Label", "Features", advancedSettings: s =>
-             {
-                 s.Shuffle = true;
-                 s.Calibrator = null;
-             });
+            var calibrator = new PlattCalibratorEstimator(Env);
+            var averagePerceptron = ML.BinaryClassification.Trainers.AveragedPerceptron(
+                new AveragedPerceptronTrainer.Options { Shuffle = true });
 
-            pipeline = pipeline.Append(new Ova(Env, averagePerceptron, "Label", true, calibrator: calibrator, 10000, true))
+            var ova = ML.MulticlassClassification.Trainers.OneVersusAll(averagePerceptron, imputeMissingLabelsAsNegative: true,
+                calibrator: calibrator, maxCalibrationExamples: 10000, useProbabilities: true);
+
+            pipeline = pipeline.Append(ova)
                     .Append(new KeyToValueMappingEstimator(Env, "PredictedLabel"));
 
             TestEstimatorCore(pipeline, data);
@@ -43,9 +41,10 @@ namespace Microsoft.ML.Tests.TrainerEstimators
         public void OVAUncalibrated()
         {
             var (pipeline, data) = GetMultiClassPipeline();
-            var sdcaTrainer = new SdcaBinaryTrainer(Env, "Label", "Features", advancedSettings: (s) => { s.MaxIterations = 100; s.Shuffle = true; s.NumThreads = 1; s.Calibrator = null; });
+            var sdcaTrainer = ML.BinaryClassification.Trainers.StochasticDualCoordinateAscentNonCalibrated(
+                new SdcaNonCalibratedBinaryTrainer.Options { MaxIterations = 100, Shuffle = true, NumThreads = 1 });
 
-            pipeline = pipeline.Append(new Ova(Env, sdcaTrainer, useProbabilities: false))
+            pipeline = pipeline.Append(ML.MulticlassClassification.Trainers.OneVersusAll(sdcaTrainer, useProbabilities: false))
                     .Append(new KeyToValueMappingEstimator(Env, "PredictedLabel"));
 
             TestEstimatorCore(pipeline, data);
@@ -60,9 +59,11 @@ namespace Microsoft.ML.Tests.TrainerEstimators
         {
             var (pipeline, data) = GetMultiClassPipeline();
 
-            var sdcaTrainer = new SdcaBinaryTrainer(Env, "Label", "Features", advancedSettings: (s) => { s.MaxIterations = 100; s.Shuffle = true; s.NumThreads = 1; });
-            pipeline = pipeline.Append(new Pkpd(Env, sdcaTrainer))
-                    .Append(new KeyToValueMappingEstimator(Env, "PredictedLabel"));
+            var sdcaTrainer = ML.BinaryClassification.Trainers.StochasticDualCoordinateAscentNonCalibrated(
+                new SdcaNonCalibratedBinaryTrainer.Options { MaxIterations = 100, Shuffle = true, NumThreads = 1 });
+
+            pipeline = pipeline.Append(ML.MulticlassClassification.Trainers.PairwiseCoupling(sdcaTrainer))
+                    .Append(ML.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
 
             TestEstimatorCore(pipeline, data);
             Done();
@@ -71,13 +72,27 @@ namespace Microsoft.ML.Tests.TrainerEstimators
         [Fact]
         public void MetacomponentsFeaturesRenamed()
         {
-            var data = new TextLoader(Env, TestDatasets.irisData.GetLoaderColumns(), separatorChar: ',')
-                .Read(GetDataPath(TestDatasets.irisData.trainFilename));
+            // Create text loader.
+            var options = new TextLoader.Options()
+            {
+                Columns = TestDatasets.irisData.GetLoaderColumns(),
+                Separators = new[] { ',' },
+            };
+            var loader = new TextLoader(Env, options: options);
 
-            var sdcaTrainer = new SdcaBinaryTrainer(Env, "Label", "Vars", advancedSettings: (s) => { s.MaxIterations = 100; s.Shuffle = true; s.NumThreads = 1; });
+            var data = loader.Load(GetDataPath(TestDatasets.irisData.trainFilename));
+
+            var sdcaTrainer = ML.BinaryClassification.Trainers.StochasticDualCoordinateAscentNonCalibrated(
+                new SdcaNonCalibratedBinaryTrainer.Options {
+                    LabelColumnName = "Label",
+                    FeatureColumnName = "Vars",
+                    MaxIterations = 100,
+                    Shuffle = true,
+                    NumThreads = 1, });
+
             var pipeline = new ColumnConcatenatingEstimator(Env, "Vars", "SepalLength", "SepalWidth", "PetalLength", "PetalWidth")
                 .Append(new ValueToKeyMappingEstimator(Env, "Label"), TransformerScope.TrainTest)
-                .Append(new Ova(Env, sdcaTrainer))
+                .Append(ML.MulticlassClassification.Trainers.OneVersusAll(sdcaTrainer))
                 .Append(new KeyToValueMappingEstimator(Env, "PredictedLabel"));
 
             var model = pipeline.Fit(data);

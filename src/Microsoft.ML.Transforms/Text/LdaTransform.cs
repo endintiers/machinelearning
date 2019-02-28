@@ -7,9 +7,9 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
+using Microsoft.Data.DataView;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
-using Microsoft.ML.Core.Data;
 using Microsoft.ML.Data;
 using Microsoft.ML.EntryPoints;
 using Microsoft.ML.Internal.Internallearn;
@@ -18,7 +18,7 @@ using Microsoft.ML.Model;
 using Microsoft.ML.TextAnalytics;
 using Microsoft.ML.Transforms.Text;
 
-[assembly: LoadableClass(LatentDirichletAllocationTransformer.Summary, typeof(IDataTransform), typeof(LatentDirichletAllocationTransformer), typeof(LatentDirichletAllocationTransformer.Arguments), typeof(SignatureDataTransform),
+[assembly: LoadableClass(LatentDirichletAllocationTransformer.Summary, typeof(IDataTransform), typeof(LatentDirichletAllocationTransformer), typeof(LatentDirichletAllocationTransformer.Options), typeof(SignatureDataTransform),
     "Latent Dirichlet Allocation Transform", LatentDirichletAllocationTransformer.LoaderSignature, "Lda")]
 
 [assembly: LoadableClass(LatentDirichletAllocationTransformer.Summary, typeof(IDataTransform), typeof(LatentDirichletAllocationTransformer), null, typeof(SignatureLoadDataTransform),
@@ -50,10 +50,10 @@ namespace Microsoft.ML.Transforms.Text
     /// <include file='doc.xml' path='doc/members/member[@name="LightLDA"]/*' />
     public sealed class LatentDirichletAllocationTransformer : OneToOneTransformerBase
     {
-        public sealed class Arguments : TransformInputBase
+        internal sealed class Options : TransformInputBase
         {
-            [Argument(ArgumentType.Multiple | ArgumentType.Required, HelpText = "New column definition(s) (optional form: name:srcs)", ShortName = "col", SortOrder = 49)]
-            public Column[] Column;
+            [Argument(ArgumentType.Multiple | ArgumentType.Required, HelpText = "New column definition(s) (optional form: name:srcs)", Name = "Column", ShortName = "col", SortOrder = 49)]
+            public Column[] Columns;
 
             [Argument(ArgumentType.AtMostOnce, HelpText = "The number of topics", SortOrder = 50)]
             [TGUI(SuggestedSweeps = "20,40,100,200")]
@@ -105,7 +105,7 @@ namespace Microsoft.ML.Transforms.Text
             public bool OutputTopicWordSummary;
         }
 
-        public sealed class Column : OneToOneColumn
+        internal sealed class Column : OneToOneColumn
         {
             [Argument(ArgumentType.AtMostOnce, HelpText = "The number of topics")]
             public int? NumTopic;
@@ -140,7 +140,7 @@ namespace Microsoft.ML.Transforms.Text
             [Argument(ArgumentType.AtMostOnce, HelpText = "Reset the random number generator for each document", ShortName = "reset")]
             public bool? ResetRandomGenerator;
 
-            public static Column Parse(string str)
+            internal static Column Parse(string str)
             {
                 Contracts.AssertNonEmpty(str);
 
@@ -150,181 +150,13 @@ namespace Microsoft.ML.Transforms.Text
                 return null;
             }
 
-            public bool TryUnparse(StringBuilder sb)
+            internal bool TryUnparse(StringBuilder sb)
             {
                 Contracts.AssertValue(sb);
                 if (NumTopic != null || AlphaSum != null || Beta != null || Mhstep != null || NumIterations != null || LikelihoodInterval != null ||
                     NumThreads != null || NumMaxDocToken != null || NumSummaryTermPerTopic != null || ResetRandomGenerator != null)
                     return false;
                 return TryUnparseCore(sb);
-            }
-        }
-
-        public sealed class ColumnInfo
-        {
-            public readonly string Input;
-            public readonly string Output;
-            public readonly int NumTopic;
-            public readonly float AlphaSum;
-            public readonly float Beta;
-            public readonly int MHStep;
-            public readonly int NumIter;
-            public readonly int LikelihoodInterval;
-            public readonly int NumThread;
-            public readonly int NumMaxDocToken;
-            public readonly int NumSummaryTermPerTopic;
-            public readonly int NumBurninIter;
-            public readonly bool ResetRandomGenerator;
-
-            /// <summary>
-            /// Describes how the transformer handles one column pair.
-            /// </summary>
-            /// <param name="input">The column representing the document as a vector of floats.</param>
-            /// <param name="output">The column containing the output scores over a set of topics, represented as a vector of floats. A null value for the column means <paramref name="input"/> is replaced. </param>
-            /// <param name="numTopic">The number of topics.</param>
-            /// <param name="alphaSum">Dirichlet prior on document-topic vectors.</param>
-            /// <param name="beta">Dirichlet prior on vocab-topic vectors.</param>
-            /// <param name="mhStep">Number of Metropolis Hasting step.</param>
-            /// <param name="numIter">Number of iterations.</param>
-            /// <param name="likelihoodInterval">Compute log likelihood over local dataset on this iteration interval.</param>
-            /// <param name="numThread">The number of training threads. Default value depends on number of logical processors.</param>
-            /// <param name="numMaxDocToken">The threshold of maximum count of tokens per doc.</param>
-            /// <param name="numSummaryTermPerTopic">The number of words to summarize the topic.</param>
-            /// <param name="numBurninIter">The number of burn-in iterations.</param>
-            /// <param name="resetRandomGenerator">Reset the random number generator for each document.</param>
-            public ColumnInfo(string input,
-                string output = null,
-                int numTopic = LatentDirichletAllocationEstimator.Defaults.NumTopic,
-                float alphaSum = LatentDirichletAllocationEstimator.Defaults.AlphaSum,
-                float beta = LatentDirichletAllocationEstimator.Defaults.Beta,
-                int mhStep = LatentDirichletAllocationEstimator.Defaults.Mhstep,
-                int numIter = LatentDirichletAllocationEstimator.Defaults.NumIterations,
-                int likelihoodInterval = LatentDirichletAllocationEstimator.Defaults.LikelihoodInterval,
-                int numThread = LatentDirichletAllocationEstimator.Defaults.NumThreads,
-                int numMaxDocToken = LatentDirichletAllocationEstimator.Defaults.NumMaxDocToken,
-                int numSummaryTermPerTopic = LatentDirichletAllocationEstimator.Defaults.NumSummaryTermPerTopic,
-                int numBurninIter = LatentDirichletAllocationEstimator.Defaults.NumBurninIterations,
-                bool resetRandomGenerator = LatentDirichletAllocationEstimator.Defaults.ResetRandomGenerator)
-            {
-                Contracts.CheckValue(input, nameof(input));
-                Contracts.CheckValueOrNull(output);
-                Contracts.CheckParam(numTopic > 0, nameof(numTopic), "Must be positive.");
-                Contracts.CheckParam(mhStep > 0, nameof(mhStep), "Must be positive.");
-                Contracts.CheckParam(numIter > 0, nameof(numIter), "Must be positive.");
-                Contracts.CheckParam(likelihoodInterval > 0, nameof(likelihoodInterval), "Must be positive.");
-                Contracts.CheckParam(numThread >= 0, nameof(numThread), "Must be positive or zero.");
-                Contracts.CheckParam(numMaxDocToken > 0, nameof(numMaxDocToken), "Must be positive.");
-                Contracts.CheckParam(numSummaryTermPerTopic > 0, nameof(numSummaryTermPerTopic), "Must be positive");
-                Contracts.CheckParam(numBurninIter >= 0, nameof(numBurninIter), "Must be non-negative.");
-
-                Input = input;
-                Output = output ?? input;
-                NumTopic = numTopic;
-                AlphaSum = alphaSum;
-                Beta = beta;
-                MHStep = mhStep;
-                NumIter = numIter;
-                LikelihoodInterval = likelihoodInterval;
-                NumThread = numThread;
-                NumMaxDocToken = numMaxDocToken;
-                NumSummaryTermPerTopic = numSummaryTermPerTopic;
-                NumBurninIter = numBurninIter;
-                ResetRandomGenerator = resetRandomGenerator;
-            }
-
-            internal ColumnInfo(Column item, Arguments args) :
-                this(item.Source ?? item.Name, item.Name,
-                    item.NumTopic ?? args.NumTopic,
-                    item.AlphaSum ?? args.AlphaSum,
-                    item.Beta ?? args.Beta,
-                    item.Mhstep ?? args.Mhstep,
-                    item.NumIterations ?? args.NumIterations,
-                    item.LikelihoodInterval ?? args.LikelihoodInterval,
-                    item.NumThreads ?? args.NumThreads,
-                    item.NumMaxDocToken ?? args.NumMaxDocToken,
-                    item.NumSummaryTermPerTopic ?? args.NumSummaryTermPerTopic,
-                    item.NumBurninIterations ?? args.NumBurninIterations,
-                    item.ResetRandomGenerator ?? args.ResetRandomGenerator)
-            {
-            }
-
-            internal ColumnInfo(IExceptionContext ectx, ModelLoadContext ctx)
-            {
-                Contracts.AssertValue(ectx);
-                ectx.AssertValue(ctx);
-
-                // *** Binary format ***
-                // int NumTopic;
-                // float AlphaSum;
-                // float Beta;
-                // int MHStep;
-                // int NumIter;
-                // int LikelihoodInterval;
-                // int NumThread;
-                // int NumMaxDocToken;
-                // int NumSummaryTermPerTopic;
-                // int NumBurninIter;
-                // byte ResetRandomGenerator;
-
-                NumTopic = ctx.Reader.ReadInt32();
-                ectx.CheckDecode(NumTopic > 0);
-
-                AlphaSum = ctx.Reader.ReadSingle();
-
-                Beta = ctx.Reader.ReadSingle();
-
-                MHStep = ctx.Reader.ReadInt32();
-                ectx.CheckDecode(MHStep > 0);
-
-                NumIter = ctx.Reader.ReadInt32();
-                ectx.CheckDecode(NumIter > 0);
-
-                LikelihoodInterval = ctx.Reader.ReadInt32();
-                ectx.CheckDecode(LikelihoodInterval > 0);
-
-                NumThread = ctx.Reader.ReadInt32();
-                ectx.CheckDecode(NumThread >= 0);
-
-                NumMaxDocToken = ctx.Reader.ReadInt32();
-                ectx.CheckDecode(NumMaxDocToken > 0);
-
-                NumSummaryTermPerTopic = ctx.Reader.ReadInt32();
-                ectx.CheckDecode(NumSummaryTermPerTopic > 0);
-
-                NumBurninIter = ctx.Reader.ReadInt32();
-                ectx.CheckDecode(NumBurninIter >= 0);
-
-                ResetRandomGenerator = ctx.Reader.ReadBoolByte();
-            }
-
-            internal void Save(ModelSaveContext ctx)
-            {
-                Contracts.AssertValue(ctx);
-
-                // *** Binary format ***
-                // int NumTopic;
-                // float AlphaSum;
-                // float Beta;
-                // int MHStep;
-                // int NumIter;
-                // int LikelihoodInterval;
-                // int NumThread;
-                // int NumMaxDocToken;
-                // int NumSummaryTermPerTopic;
-                // int NumBurninIter;
-                // byte ResetRandomGenerator;
-
-                ctx.Writer.Write(NumTopic);
-                ctx.Writer.Write(AlphaSum);
-                ctx.Writer.Write(Beta);
-                ctx.Writer.Write(MHStep);
-                ctx.Writer.Write(NumIter);
-                ctx.Writer.Write(LikelihoodInterval);
-                ctx.Writer.Write(NumThread);
-                ctx.Writer.Write(NumMaxDocToken);
-                ctx.Writer.Write(NumSummaryTermPerTopic);
-                ctx.Writer.Write(NumBurninIter);
-                ctx.Writer.WriteBoolByte(ResetRandomGenerator);
             }
         }
 
@@ -363,7 +195,7 @@ namespace Microsoft.ML.Transforms.Text
 
         private sealed class LdaState : IDisposable
         {
-            internal readonly ColumnInfo InfoEx;
+            internal readonly LatentDirichletAllocationEstimator.ColumnOptions InfoEx;
             private readonly int _numVocab;
             private readonly object _preparationSyncRoot;
             private readonly object _testSyncRoot;
@@ -376,7 +208,7 @@ namespace Microsoft.ML.Transforms.Text
                 _testSyncRoot = new object();
             }
 
-            internal LdaState(IExceptionContext ectx, ColumnInfo ex, int numVocab)
+            internal LdaState(IExceptionContext ectx, LatentDirichletAllocationEstimator.ColumnOptions ex, int numVocab)
                 : this()
             {
                 Contracts.AssertValue(ectx);
@@ -413,7 +245,7 @@ namespace Microsoft.ML.Transforms.Text
                 // (serializing term by term, for one term)
                 // int: term_id, int: topic_num, KeyValuePair<int, int>[]: termTopicVector
 
-                InfoEx = new ColumnInfo(ectx, ctx);
+                InfoEx = new LatentDirichletAllocationEstimator.ColumnOptions(ectx, ctx);
 
                 _numVocab = ctx.Reader.ReadInt32();
                 ectx.CheckDecode(_numVocab > 0);
@@ -507,7 +339,7 @@ namespace Microsoft.ML.Transforms.Text
                 }
             }
 
-            public void Save(ModelSaveContext ctx)
+            internal void Save(ModelSaveContext ctx)
             {
                 Contracts.AssertValue(ctx);
                 long memBlockSize = 0;
@@ -701,7 +533,7 @@ namespace Microsoft.ML.Transforms.Text
             private readonly LatentDirichletAllocationTransformer _parent;
             private readonly int[] _srcCols;
 
-            public Mapper(LatentDirichletAllocationTransformer parent, Schema inputSchema)
+            public Mapper(LatentDirichletAllocationTransformer parent, DataViewSchema inputSchema)
                 : base(parent.Host.Register(nameof(Mapper)), parent, inputSchema)
             {
                 _parent = parent;
@@ -709,28 +541,28 @@ namespace Microsoft.ML.Transforms.Text
 
                 for (int i = 0; i < _parent.ColumnPairs.Length; i++)
                 {
-                    if (!inputSchema.TryGetColumnIndex(_parent.ColumnPairs[i].input, out _srcCols[i]))
-                        throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", _parent.ColumnPairs[i].input);
+                    if (!inputSchema.TryGetColumnIndex(_parent.ColumnPairs[i].inputColumnName, out _srcCols[i]))
+                        throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", _parent.ColumnPairs[i].inputColumnName);
 
                     var srcCol = inputSchema[_srcCols[i]];
                     var srcType = srcCol.Type as VectorType;
-                    if (srcType == null || !srcType.IsKnownSize || !(srcType.ItemType is NumberType))
-                        throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", _parent.ColumnPairs[i].input, "a fixed vector of floats", srcCol.Type.ToString());
+                    if (srcType == null || !srcType.IsKnownSize || !(srcType.ItemType is NumberDataViewType))
+                        throw Host.ExceptSchemaMismatch(nameof(inputSchema), "input", _parent.ColumnPairs[i].inputColumnName, "known-size vector of float", srcCol.Type.ToString());
                 }
             }
 
-            protected override Schema.DetachedColumn[] GetOutputColumnsCore()
+            protected override DataViewSchema.DetachedColumn[] GetOutputColumnsCore()
             {
-                var result = new Schema.DetachedColumn[_parent.ColumnPairs.Length];
+                var result = new DataViewSchema.DetachedColumn[_parent.ColumnPairs.Length];
                 for (int i = 0; i < _parent.ColumnPairs.Length; i++)
                 {
                     var info = _parent._columns[i];
-                    result[i] = new Schema.DetachedColumn(_parent.ColumnPairs[i].output, new VectorType(NumberType.Float, info.NumTopic), null);
+                    result[i] = new DataViewSchema.DetachedColumn(_parent.ColumnPairs[i].outputColumnName, new VectorType(NumberDataViewType.Single, info.NumTopic), null);
                 }
                 return result;
             }
 
-            protected override Delegate MakeGetter(Row input, int iinfo, Func<int, bool> activeOutput, out Action disposer)
+            protected override Delegate MakeGetter(DataViewRow input, int iinfo, Func<int, bool> activeOutput, out Action disposer)
             {
                 Contracts.AssertValue(input);
                 Contracts.Assert(0 <= iinfo && iinfo < _parent.ColumnPairs.Length);
@@ -739,9 +571,9 @@ namespace Microsoft.ML.Transforms.Text
                 return GetTopic(input, iinfo);
             }
 
-            private ValueGetter<VBuffer<float>> GetTopic(Row input, int iinfo)
+            private ValueGetter<VBuffer<float>> GetTopic(DataViewRow input, int iinfo)
             {
-                var getSrc = RowCursorUtils.GetVecGetterAs<Double>(NumberType.R8, input, _srcCols[iinfo]);
+                var getSrc = RowCursorUtils.GetVecGetterAs<Double>(NumberDataViewType.Double, input, _srcCols[iinfo]);
                 var src = default(VBuffer<Double>);
                 var lda = _parent._ldas[iinfo];
                 int numBurninIter = lda.InfoEx.NumBurninIter;
@@ -769,7 +601,7 @@ namespace Microsoft.ML.Transforms.Text
                 loaderAssemblyName: typeof(LatentDirichletAllocationTransformer).Assembly.FullName);
         }
 
-        private readonly ColumnInfo[] _columns;
+        private readonly LatentDirichletAllocationEstimator.ColumnOptions[] _columns;
         private readonly LdaState[] _ldas;
         private readonly List<VBuffer<ReadOnlyMemory<char>>> _columnMappings;
 
@@ -779,10 +611,10 @@ namespace Microsoft.ML.Transforms.Text
         internal const string UserName = "Latent Dirichlet Allocation Transform";
         internal const string ShortName = "LightLda";
 
-        private static (string input, string output)[] GetColumnPairs(ColumnInfo[] columns)
+        private static (string outputColumnName, string inputColumnName)[] GetColumnPairs(LatentDirichletAllocationEstimator.ColumnOptions[] columns)
         {
             Contracts.CheckValue(columns, nameof(columns));
-            return columns.Select(x => (x.Input, x.Output)).ToArray();
+            return columns.Select(x => (x.Name, x.InputColumnName)).ToArray();
         }
 
         /// <summary>
@@ -795,7 +627,7 @@ namespace Microsoft.ML.Transforms.Text
         private LatentDirichletAllocationTransformer(IHostEnvironment env,
             LdaState[] ldas,
             List<VBuffer<ReadOnlyMemory<char>>> columnMappings,
-            params ColumnInfo[] columns)
+            params LatentDirichletAllocationEstimator.ColumnOptions[] columns)
             : base(Contracts.CheckRef(env, nameof(env)).Register(nameof(LatentDirichletAllocationTransformer)), GetColumnPairs(columns))
         {
             Host.AssertNonEmpty(ColumnPairs);
@@ -815,7 +647,7 @@ namespace Microsoft.ML.Transforms.Text
 
             // Note: columnsLength would be just one in most cases.
             var columnsLength = ColumnPairs.Length;
-            _columns = new ColumnInfo[columnsLength];
+            _columns = new LatentDirichletAllocationEstimator.ColumnOptions[columnsLength];
             _ldas = new LdaState[columnsLength];
             for (int i = 0; i < _ldas.Length; i++)
             {
@@ -824,7 +656,7 @@ namespace Microsoft.ML.Transforms.Text
             }
         }
 
-        internal static LatentDirichletAllocationTransformer TrainLdaTransformer(IHostEnvironment env, IDataView inputData, params ColumnInfo[] columns)
+        internal static LatentDirichletAllocationTransformer TrainLdaTransformer(IHostEnvironment env, IDataView inputData, params LatentDirichletAllocationEstimator.ColumnOptions[] columns)
         {
             var ldas = new LdaState[columns.Length];
 
@@ -863,18 +695,18 @@ namespace Microsoft.ML.Transforms.Text
             => Create(env, ctx).MakeDataTransform(input);
 
         // Factory method for SignatureLoadRowMapper.
-        private static IRowMapper Create(IHostEnvironment env, ModelLoadContext ctx, Schema inputSchema)
+        private static IRowMapper Create(IHostEnvironment env, ModelLoadContext ctx, DataViewSchema inputSchema)
             => Create(env, ctx).MakeRowMapper(inputSchema);
 
         // Factory method for SignatureDataTransform.
-        private static IDataTransform Create(IHostEnvironment env, Arguments args, IDataView input)
+        private static IDataTransform Create(IHostEnvironment env, Options options, IDataView input)
         {
             Contracts.CheckValue(env, nameof(env));
-            env.CheckValue(args, nameof(args));
+            env.CheckValue(options, nameof(options));
             env.CheckValue(input, nameof(input));
-            env.CheckValue(args.Column, nameof(args.Column));
+            env.CheckValue(options.Columns, nameof(options.Columns));
 
-            var cols = args.Column.Select(colPair => new ColumnInfo(colPair, args)).ToArray();
+            var cols = options.Columns.Select(colPair => new LatentDirichletAllocationEstimator.ColumnOptions(colPair, options)).ToArray();
             return TrainLdaTransformer(env, input, cols).MakeDataTransform(input);
         }
 
@@ -900,7 +732,7 @@ namespace Microsoft.ML.Transforms.Text
                 });
         }
 
-        public override void Save(ModelSaveContext ctx)
+        private protected override void SaveModel(ModelSaveContext ctx)
         {
             Host.CheckValue(ctx, nameof(ctx));
             ctx.CheckAtModel();
@@ -927,14 +759,14 @@ namespace Microsoft.ML.Transforms.Text
             return result;
         }
 
-        private static List<VBuffer<ReadOnlyMemory<char>>> Train(IHostEnvironment env, IChannel ch, IDataView inputData, LdaState[] states, params ColumnInfo[] columns)
+        private static List<VBuffer<ReadOnlyMemory<char>>> Train(IHostEnvironment env, IChannel ch, IDataView inputData, LdaState[] states, params LatentDirichletAllocationEstimator.ColumnOptions[] columns)
         {
             env.AssertValue(ch);
             ch.AssertValue(inputData);
             ch.AssertValue(states);
             ch.Assert(states.Length == columns.Length);
 
-            bool[] activeColumns = new bool[inputData.Schema.Count];
+            var activeColumns = new List<DataViewSchema.Column>();
             int[] numVocabs = new int[columns.Length];
             int[] srcCols = new int[columns.Length];
 
@@ -943,20 +775,20 @@ namespace Microsoft.ML.Transforms.Text
             var inputSchema = inputData.Schema;
             for (int i = 0; i < columns.Length; i++)
             {
-                if (!inputData.Schema.TryGetColumnIndex(columns[i].Input, out int srcCol))
-                    throw env.ExceptSchemaMismatch(nameof(inputData), "input", columns[i].Input);
+                if (!inputData.Schema.TryGetColumnIndex(columns[i].InputColumnName, out int srcCol))
+                    throw env.ExceptSchemaMismatch(nameof(inputData), "input", columns[i].InputColumnName);
 
                 var srcColType = inputSchema[srcCol].Type as VectorType;
-                if (srcColType == null || !srcColType.IsKnownSize || !(srcColType.ItemType is NumberType))
-                    throw env.ExceptSchemaMismatch(nameof(inputSchema), "input", columns[i].Input, "a fixed vector of floats", srcColType.ToString());
+                if (srcColType == null || !srcColType.IsKnownSize || !(srcColType.ItemType is NumberDataViewType))
+                    throw env.ExceptSchemaMismatch(nameof(inputSchema), "input", columns[i].InputColumnName, "known-size vector of float", srcColType.ToString());
 
                 srcCols[i] = srcCol;
-                activeColumns[srcCol] = true;
+                activeColumns.Add(inputData.Schema[srcCol]);
                 numVocabs[i] = 0;
 
                 VBuffer<ReadOnlyMemory<char>> dst = default;
                 if (inputSchema[srcCol].HasSlotNames(srcColType.Size))
-                    inputSchema[srcCol].Metadata.GetValue(MetadataUtils.Kinds.SlotNames, ref dst);
+                    inputSchema[srcCol].Annotations.GetValue(AnnotationUtils.Kinds.SlotNames, ref dst);
                 else
                     dst = default(VBuffer<ReadOnlyMemory<char>>);
                 columnMappings.Add(dst);
@@ -968,16 +800,16 @@ namespace Microsoft.ML.Transforms.Text
             long[] corpusSize = new long[columns.Length];
             int[] numDocArray = new int[columns.Length];
 
-            using (var cursor = inputData.GetRowCursor(col => activeColumns[col]))
+            using (var cursor = inputData.GetRowCursor(activeColumns))
             {
                 var getters = new ValueGetter<VBuffer<Double>>[columns.Length];
                 for (int i = 0; i < columns.Length; i++)
                 {
                     corpusSize[i] = 0;
                     numDocArray[i] = 0;
-                    getters[i] = RowCursorUtils.GetVecGetterAs<Double>(NumberType.R8, cursor, srcCols[i]);
+                    getters[i] = RowCursorUtils.GetVecGetterAs<Double>(NumberDataViewType.Double, cursor, srcCols[i]);
                 }
-                VBuffer<Double> src = default(VBuffer<Double>);
+                VBuffer<Double> src = default;
                 long rowCount = 0;
                 while (cursor.MoveNext())
                 {
@@ -1028,7 +860,7 @@ namespace Microsoft.ML.Transforms.Text
                     if (numDocArray[i] != rowCount)
                     {
                         ch.Assert(numDocArray[i] < rowCount);
-                        ch.Warning($"Column '{columns[i].Input}' has skipped {rowCount - numDocArray[i]} of {rowCount} rows either empty or with negative, non-finite, or fractional values.");
+                        ch.Warning($"Column '{columns[i].InputColumnName}' has skipped {rowCount - numDocArray[i]} of {rowCount} rows either empty or with negative, non-finite, or fractional values.");
                     }
                 }
             }
@@ -1039,13 +871,13 @@ namespace Microsoft.ML.Transforms.Text
                 var state = new LdaState(env, columns[i], numVocabs[i]);
 
                 if (numDocArray[i] == 0 || corpusSize[i] == 0)
-                    throw ch.Except("The specified documents are all empty in column '{0}'.", columns[i].Input);
+                    throw ch.Except("The specified documents are all empty in column '{0}'.", columns[i].InputColumnName);
 
                 state.AllocateDataMemory(numDocArray[i], corpusSize[i]);
                 states[i] = state;
             }
 
-            using (var cursor = inputData.GetRowCursor(col => activeColumns[col]))
+            using (var cursor = inputData.GetRowCursor(activeColumns))
             {
                 int[] docSizeCheck = new int[columns.Length];
                 // This could be optimized so that if multiple trainers consume the same column, it is
@@ -1054,10 +886,10 @@ namespace Microsoft.ML.Transforms.Text
                 for (int i = 0; i < columns.Length; i++)
                 {
                     docSizeCheck[i] = 0;
-                    getters[i] = RowCursorUtils.GetVecGetterAs<Double>(NumberType.R8, cursor, srcCols[i]);
+                    getters[i] = RowCursorUtils.GetVecGetterAs<Double>(NumberDataViewType.Double, cursor, srcCols[i]);
                 }
 
-                VBuffer<Double> src = default(VBuffer<Double>);
+                VBuffer<double> src = default;
 
                 while (cursor.MoveNext())
                 {
@@ -1078,7 +910,7 @@ namespace Microsoft.ML.Transforms.Text
             return columnMappings;
         }
 
-        private protected override IRowMapper MakeRowMapper(Schema schema)
+        private protected override IRowMapper MakeRowMapper(DataViewSchema schema)
             => new Mapper(this, schema);
     }
 
@@ -1102,12 +934,12 @@ namespace Microsoft.ML.Transforms.Text
         }
 
         private readonly IHost _host;
-        private readonly ImmutableArray<LatentDirichletAllocationTransformer.ColumnInfo> _columns;
+        private readonly ImmutableArray<ColumnOptions> _columns;
 
         /// <include file='doc.xml' path='doc/members/member[@name="LightLDA"]/*' />
         /// <param name="env">The environment.</param>
-        /// <param name="inputColumn">The column representing the document as a vector of floats.</param>
-        /// <param name="outputColumn">The column containing the output scores over a set of topics, represented as a vector of floats. A null value for the column means <paramref name="inputColumn"/> is replaced.</param>
+        /// <param name="outputColumnName">Name of the column resulting from the transformation of <paramref name="inputColumnName"/>.</param>
+        /// <param name="inputColumnName">Name of the column to transform. If set to <see langword="null"/>, the value of the <paramref name="outputColumnName"/> will be used as source.</param>
         /// <param name="numTopic">The number of topics.</param>
         /// <param name="alphaSum">Dirichlet prior on document-topic vectors.</param>
         /// <param name="beta">Dirichlet prior on vocab-topic vectors.</param>
@@ -1119,9 +951,8 @@ namespace Microsoft.ML.Transforms.Text
         /// <param name="numSummaryTermPerTopic">The number of words to summarize the topic.</param>
         /// <param name="numBurninIterations">The number of burn-in iterations.</param>
         /// <param name="resetRandomGenerator">Reset the random number generator for each document.</param>
-        public LatentDirichletAllocationEstimator(IHostEnvironment env,
-            string inputColumn,
-            string outputColumn = null,
+        internal LatentDirichletAllocationEstimator(IHostEnvironment env,
+            string outputColumnName, string inputColumnName = null,
             int numTopic = Defaults.NumTopic,
             float alphaSum = Defaults.AlphaSum,
             float beta = Defaults.Beta,
@@ -1133,7 +964,7 @@ namespace Microsoft.ML.Transforms.Text
             int numSummaryTermPerTopic = Defaults.NumSummaryTermPerTopic,
             int numBurninIterations = Defaults.NumBurninIterations,
             bool resetRandomGenerator = Defaults.ResetRandomGenerator)
-            : this(env, new[] { new LatentDirichletAllocationTransformer.ColumnInfo(inputColumn, outputColumn ?? inputColumn,
+            : this(env, new[] { new ColumnOptions(outputColumnName, inputColumnName ?? outputColumnName,
                 numTopic, alphaSum, beta, mhstep, numIterations, likelihoodInterval, numThreads, numMaxDocToken,
                 numSummaryTermPerTopic, numBurninIterations, resetRandomGenerator) })
         { }
@@ -1141,7 +972,7 @@ namespace Microsoft.ML.Transforms.Text
         /// <include file='doc.xml' path='doc/members/member[@name="LightLDA"]/*' />
         /// <param name="env">The environment.</param>
         /// <param name="columns">Describes the parameters of the LDA process for each column pair.</param>
-        public LatentDirichletAllocationEstimator(IHostEnvironment env, params LatentDirichletAllocationTransformer.ColumnInfo[] columns)
+        internal LatentDirichletAllocationEstimator(IHostEnvironment env, params ColumnOptions[] columns)
         {
             Contracts.CheckValue(env, nameof(env));
             _host = env.Register(nameof(LatentDirichletAllocationEstimator));
@@ -1149,7 +980,219 @@ namespace Microsoft.ML.Transforms.Text
         }
 
         /// <summary>
-        /// Returns the schema that would be produced by the transformation.
+        /// Describes how the transformer handles one column pair.
+        /// </summary>
+        public sealed class ColumnOptions
+        {
+            /// <summary>
+            /// Name of the column resulting from the transformation of <cref see="InputColumnName"/>.
+            /// </summary>
+            public readonly string Name;
+            /// <summary>
+            /// Name of column to transform.
+            /// </summary>
+            public readonly string InputColumnName;
+            /// <summary>
+            /// The number of topics.
+            /// </summary>
+            public readonly int NumTopic;
+            /// <summary>
+            /// Dirichlet prior on document-topic vectors.
+            /// </summary>
+            public readonly float AlphaSum;
+            /// <summary>
+            /// Dirichlet prior on vocab-topic vectors.
+            /// </summary>
+            public readonly float Beta;
+            /// <summary>
+            /// Number of Metropolis Hasting step.
+            /// </summary>
+            public readonly int MHStep;
+            /// <summary>
+            /// Number of iterations.
+            /// </summary>
+            public readonly int NumIter;
+            /// <summary>
+            /// Compute log likelihood over local dataset on this iteration interval.
+            /// </summary>
+            public readonly int LikelihoodInterval;
+            /// <summary>
+            /// The number of training threads.
+            /// </summary>
+            public readonly int NumThread;
+            /// <summary>
+            /// The threshold of maximum count of tokens per doc.
+            /// </summary>
+            public readonly int NumMaxDocToken;
+            /// <summary>
+            /// The number of words to summarize the topic.
+            /// </summary>
+            public readonly int NumSummaryTermPerTopic;
+            /// <summary>
+            /// The number of burn-in iterations.
+            /// </summary>
+            public readonly int NumBurninIter;
+            /// <summary>
+            /// Reset the random number generator for each document.
+            /// </summary>
+            public readonly bool ResetRandomGenerator;
+
+            /// <summary>
+            /// Describes how the transformer handles one column pair.
+            /// </summary>
+            /// <param name="name">The column containing the output scores over a set of topics, represented as a vector of floats. </param>
+            /// <param name="inputColumnName">The column representing the document as a vector of floats.A null value for the column means <paramref name="inputColumnName"/> is replaced. </param>
+            /// <param name="numTopic">The number of topics.</param>
+            /// <param name="alphaSum">Dirichlet prior on document-topic vectors.</param>
+            /// <param name="beta">Dirichlet prior on vocab-topic vectors.</param>
+            /// <param name="mhStep">Number of Metropolis Hasting step.</param>
+            /// <param name="numIter">Number of iterations.</param>
+            /// <param name="likelihoodInterval">Compute log likelihood over local dataset on this iteration interval.</param>
+            /// <param name="numThread">The number of training threads. Default value depends on number of logical processors.</param>
+            /// <param name="numMaxDocToken">The threshold of maximum count of tokens per doc.</param>
+            /// <param name="numSummaryTermPerTopic">The number of words to summarize the topic.</param>
+            /// <param name="numBurninIter">The number of burn-in iterations.</param>
+            /// <param name="resetRandomGenerator">Reset the random number generator for each document.</param>
+            public ColumnOptions(string name,
+                string inputColumnName = null,
+                int numTopic = LatentDirichletAllocationEstimator.Defaults.NumTopic,
+                float alphaSum = LatentDirichletAllocationEstimator.Defaults.AlphaSum,
+                float beta = LatentDirichletAllocationEstimator.Defaults.Beta,
+                int mhStep = LatentDirichletAllocationEstimator.Defaults.Mhstep,
+                int numIter = LatentDirichletAllocationEstimator.Defaults.NumIterations,
+                int likelihoodInterval = LatentDirichletAllocationEstimator.Defaults.LikelihoodInterval,
+                int numThread = LatentDirichletAllocationEstimator.Defaults.NumThreads,
+                int numMaxDocToken = LatentDirichletAllocationEstimator.Defaults.NumMaxDocToken,
+                int numSummaryTermPerTopic = LatentDirichletAllocationEstimator.Defaults.NumSummaryTermPerTopic,
+                int numBurninIter = LatentDirichletAllocationEstimator.Defaults.NumBurninIterations,
+                bool resetRandomGenerator = LatentDirichletAllocationEstimator.Defaults.ResetRandomGenerator)
+            {
+                Contracts.CheckValue(name, nameof(name));
+                Contracts.CheckValueOrNull(inputColumnName);
+                Contracts.CheckParam(numTopic > 0, nameof(numTopic), "Must be positive.");
+                Contracts.CheckParam(mhStep > 0, nameof(mhStep), "Must be positive.");
+                Contracts.CheckParam(numIter > 0, nameof(numIter), "Must be positive.");
+                Contracts.CheckParam(likelihoodInterval > 0, nameof(likelihoodInterval), "Must be positive.");
+                Contracts.CheckParam(numThread >= 0, nameof(numThread), "Must be positive or zero.");
+                Contracts.CheckParam(numMaxDocToken > 0, nameof(numMaxDocToken), "Must be positive.");
+                Contracts.CheckParam(numSummaryTermPerTopic > 0, nameof(numSummaryTermPerTopic), "Must be positive");
+                Contracts.CheckParam(numBurninIter >= 0, nameof(numBurninIter), "Must be non-negative.");
+
+                Name = name;
+                InputColumnName = inputColumnName ?? name;
+                NumTopic = numTopic;
+                AlphaSum = alphaSum;
+                Beta = beta;
+                MHStep = mhStep;
+                NumIter = numIter;
+                LikelihoodInterval = likelihoodInterval;
+                NumThread = numThread;
+                NumMaxDocToken = numMaxDocToken;
+                NumSummaryTermPerTopic = numSummaryTermPerTopic;
+                NumBurninIter = numBurninIter;
+                ResetRandomGenerator = resetRandomGenerator;
+            }
+
+            internal ColumnOptions(LatentDirichletAllocationTransformer.Column item, LatentDirichletAllocationTransformer.Options options) :
+                this(item.Name,
+                    item.Source ?? item.Name,
+                    item.NumTopic ?? options.NumTopic,
+                    item.AlphaSum ?? options.AlphaSum,
+                    item.Beta ?? options.Beta,
+                    item.Mhstep ?? options.Mhstep,
+                    item.NumIterations ?? options.NumIterations,
+                    item.LikelihoodInterval ?? options.LikelihoodInterval,
+                    item.NumThreads ?? options.NumThreads,
+                    item.NumMaxDocToken ?? options.NumMaxDocToken,
+                    item.NumSummaryTermPerTopic ?? options.NumSummaryTermPerTopic,
+                    item.NumBurninIterations ?? options.NumBurninIterations,
+                    item.ResetRandomGenerator ?? options.ResetRandomGenerator)
+            {
+            }
+
+            internal ColumnOptions(IExceptionContext ectx, ModelLoadContext ctx)
+            {
+                Contracts.AssertValue(ectx);
+                ectx.AssertValue(ctx);
+
+                // *** Binary format ***
+                // int NumTopic;
+                // float AlphaSum;
+                // float Beta;
+                // int MHStep;
+                // int NumIter;
+                // int LikelihoodInterval;
+                // int NumThread;
+                // int NumMaxDocToken;
+                // int NumSummaryTermPerTopic;
+                // int NumBurninIter;
+                // byte ResetRandomGenerator;
+
+                NumTopic = ctx.Reader.ReadInt32();
+                ectx.CheckDecode(NumTopic > 0);
+
+                AlphaSum = ctx.Reader.ReadSingle();
+
+                Beta = ctx.Reader.ReadSingle();
+
+                MHStep = ctx.Reader.ReadInt32();
+                ectx.CheckDecode(MHStep > 0);
+
+                NumIter = ctx.Reader.ReadInt32();
+                ectx.CheckDecode(NumIter > 0);
+
+                LikelihoodInterval = ctx.Reader.ReadInt32();
+                ectx.CheckDecode(LikelihoodInterval > 0);
+
+                NumThread = ctx.Reader.ReadInt32();
+                ectx.CheckDecode(NumThread >= 0);
+
+                NumMaxDocToken = ctx.Reader.ReadInt32();
+                ectx.CheckDecode(NumMaxDocToken > 0);
+
+                NumSummaryTermPerTopic = ctx.Reader.ReadInt32();
+                ectx.CheckDecode(NumSummaryTermPerTopic > 0);
+
+                NumBurninIter = ctx.Reader.ReadInt32();
+                ectx.CheckDecode(NumBurninIter >= 0);
+
+                ResetRandomGenerator = ctx.Reader.ReadBoolByte();
+            }
+
+            internal void Save(ModelSaveContext ctx)
+            {
+                Contracts.AssertValue(ctx);
+
+                // *** Binary format ***
+                // int NumTopic;
+                // float AlphaSum;
+                // float Beta;
+                // int MHStep;
+                // int NumIter;
+                // int LikelihoodInterval;
+                // int NumThread;
+                // int NumMaxDocToken;
+                // int NumSummaryTermPerTopic;
+                // int NumBurninIter;
+                // byte ResetRandomGenerator;
+
+                ctx.Writer.Write(NumTopic);
+                ctx.Writer.Write(AlphaSum);
+                ctx.Writer.Write(Beta);
+                ctx.Writer.Write(MHStep);
+                ctx.Writer.Write(NumIter);
+                ctx.Writer.Write(LikelihoodInterval);
+                ctx.Writer.Write(NumThread);
+                ctx.Writer.Write(NumMaxDocToken);
+                ctx.Writer.Write(NumSummaryTermPerTopic);
+                ctx.Writer.Write(NumBurninIter);
+                ctx.Writer.WriteBoolByte(ResetRandomGenerator);
+            }
+        }
+
+        /// <summary>
+        /// Returns the <see cref="SchemaShape"/> of the schema which will be produced by the transformer.
+        /// Used for schema propagation and verification in a pipeline.
         /// </summary>
         public SchemaShape GetOutputSchema(SchemaShape inputSchema)
         {
@@ -1157,17 +1200,20 @@ namespace Microsoft.ML.Transforms.Text
             var result = inputSchema.ToDictionary(x => x.Name);
             foreach (var colInfo in _columns)
             {
-                if (!inputSchema.TryFindColumn(colInfo.Input, out var col))
-                    throw _host.ExceptSchemaMismatch(nameof(inputSchema), "input", colInfo.Input);
-                if (col.ItemType.RawKind != DataKind.R4 || col.Kind == SchemaShape.Column.VectorKind.Scalar)
-                    throw _host.ExceptSchemaMismatch(nameof(inputSchema), "input", colInfo.Input, "a vector of floats", col.GetTypeString());
+                if (!inputSchema.TryFindColumn(colInfo.InputColumnName, out var col))
+                    throw _host.ExceptSchemaMismatch(nameof(inputSchema), "input", colInfo.InputColumnName);
+                if (col.ItemType.RawType != typeof(float) || col.Kind == SchemaShape.Column.VectorKind.Scalar)
+                    throw _host.ExceptSchemaMismatch(nameof(inputSchema), "input", colInfo.InputColumnName, "vector of float", col.GetTypeString());
 
-                result[colInfo.Output] = new SchemaShape.Column(colInfo.Output, SchemaShape.Column.VectorKind.Vector, NumberType.R4, false);
+                result[colInfo.Name] = new SchemaShape.Column(colInfo.Name, SchemaShape.Column.VectorKind.Vector, NumberDataViewType.Single, false);
             }
 
             return new SchemaShape(result.Values);
         }
 
+        /// <summary>
+        /// Trains and returns a <see cref="LatentDirichletAllocationTransformer"/>.
+        /// </summary>
         public LatentDirichletAllocationTransformer Fit(IDataView input)
         {
             return LatentDirichletAllocationTransformer.TrainLdaTransformer(_host, input, _columns.ToArray());

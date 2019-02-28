@@ -5,12 +5,13 @@
 using System;
 using System.IO;
 using System.Linq;
+using Microsoft.Data.DataView;
 using Microsoft.ML.Data;
 using Microsoft.ML.Model;
 using Microsoft.ML.RunTests;
 using Microsoft.ML.StaticPipe;
 using Microsoft.ML.Tools;
-using Microsoft.ML.Transforms.Conversions;
+using Microsoft.ML.Transforms;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -44,15 +45,14 @@ namespace Microsoft.ML.Tests.Transformers
         {
             var data = new[] { new TestClass() { A = 1, B = 2, C = 3, }, new TestClass() { A = 4, B = 5, C = 6 } };
 
-            var dataView = ComponentCreation.CreateDataView(Env, data);
+            var dataView = ML.Data.LoadFromEnumerable(data);
             dataView = new ValueToKeyMappingEstimator(Env, new[]{
-                    new ValueToKeyMappingTransformer.ColumnInfo("A", "TermA"),
-                    new ValueToKeyMappingTransformer.ColumnInfo("B", "TermB"),
-                    new ValueToKeyMappingTransformer.ColumnInfo("C", "TermC", textKeyValues:true)
+                    new ValueToKeyMappingEstimator.ColumnOptions("TermA", "A"),
+                    new ValueToKeyMappingEstimator.ColumnOptions("TermB", "B"),
+                    new ValueToKeyMappingEstimator.ColumnOptions("TermC", "C", textKeyValues:true)
                 }).Fit(dataView).Transform(dataView);
 
-            var pipe = new KeyToBinaryVectorMappingEstimator(Env, new KeyToBinaryVectorMappingTransformer.ColumnInfo("TermA", "CatA"),
-                new KeyToBinaryVectorMappingTransformer.ColumnInfo("TermC", "CatC"));
+            var pipe = ML.Transforms.Conversion.MapKeyToBinaryVector(("CatA", "TermA"), ("CatC", "TermC"));
             TestEstimatorCore(pipe, dataView);
             Done();
         }
@@ -61,17 +61,17 @@ namespace Microsoft.ML.Tests.Transformers
         public void KeyToBinaryVectorStatic()
         {
             string dataPath = GetDataPath("breast-cancer.txt");
-            var reader = TextLoaderStatic.CreateReader(Env, ctx => (
+            var reader = TextLoaderStatic.CreateLoader(Env, ctx => (
                 ScalarString: ctx.LoadText(1),
                 VectorString: ctx.LoadText(1, 4)
             ));
 
-            var data = reader.Read(dataPath);
+            var data = reader.Load(dataPath);
 
             // Non-pigsty Term.
             var dynamicData = new ValueToKeyMappingEstimator(Env, new[] {
-                new ValueToKeyMappingTransformer.ColumnInfo("ScalarString", "A"),
-                new ValueToKeyMappingTransformer.ColumnInfo("VectorString", "B") })
+                new ValueToKeyMappingEstimator.ColumnOptions("A", "ScalarString"),
+                new ValueToKeyMappingEstimator.ColumnOptions("B", "VectorString") })
                 .Fit(data.AsDynamic).Transform(data.AsDynamic);
 
             var data2 = dynamicData.AssertStatic(Env, ctx => (
@@ -97,20 +97,16 @@ namespace Microsoft.ML.Tests.Transformers
                 new TestMeta() { A=new string[2] { "A", "B"}, B="C", C=new int[2] { 3,5}, D= 6} };
 
 
-            var dataView = ComponentCreation.CreateDataView(Env, data);
+            var dataView = ML.Data.LoadFromEnumerable(data);
             var termEst = new ValueToKeyMappingEstimator(Env, new[] {
-                new ValueToKeyMappingTransformer.ColumnInfo("A", "TA", textKeyValues: true),
-                new ValueToKeyMappingTransformer.ColumnInfo("B", "TB", textKeyValues: true),
-                new ValueToKeyMappingTransformer.ColumnInfo("C", "TC"),
-                new ValueToKeyMappingTransformer.ColumnInfo("D", "TD") });
+                new ValueToKeyMappingEstimator.ColumnOptions("TA", "A", textKeyValues: true),
+                new ValueToKeyMappingEstimator.ColumnOptions("TB", "B", textKeyValues: true),
+                new ValueToKeyMappingEstimator.ColumnOptions("TC", "C"),
+                new ValueToKeyMappingEstimator.ColumnOptions("TD", "D") });
             var termTransformer = termEst.Fit(dataView);
             dataView = termTransformer.Transform(dataView);
 
-            var pipe = new KeyToBinaryVectorMappingEstimator(Env,
-                 new KeyToBinaryVectorMappingTransformer.ColumnInfo("TA", "CatA"),
-                 new KeyToBinaryVectorMappingTransformer.ColumnInfo("TB", "CatB"),
-                 new KeyToBinaryVectorMappingTransformer.ColumnInfo("TC", "CatC"),
-                 new KeyToBinaryVectorMappingTransformer.ColumnInfo("TD", "CatD"));
+            var pipe = ML.Transforms.Conversion.MapKeyToBinaryVector(("CatA", "TA"), ("CatB", "TB"), ("CatC", "TC"), ("CatD", "TD"));
 
             var result = pipe.Fit(dataView).Transform(dataView);
             ValidateMetadata(result);
@@ -122,23 +118,23 @@ namespace Microsoft.ML.Tests.Transformers
             VBuffer<ReadOnlyMemory<char>> slots = default;
 
             var column = result.Schema["CatA"];
-            Assert.Equal(column.Metadata.Schema.Select(x => x.Name), new string[1] { MetadataUtils.Kinds.SlotNames });
+            Assert.Equal(column.Annotations.Schema.Select(x => x.Name), new string[1] { AnnotationUtils.Kinds.SlotNames });
             column.GetSlotNames(ref slots);
             Assert.True(slots.Length == 6);
             Assert.Equal(slots.Items().Select(x => x.Value.ToString()), new string[6] { "[0].Bit2", "[0].Bit1", "[0].Bit0", "[1].Bit2", "[1].Bit1", "[1].Bit0" });
 
             column = result.Schema["CatB"];
-            Assert.Equal(column.Metadata.Schema.Select(x => x.Name), new string[2] { MetadataUtils.Kinds.SlotNames, MetadataUtils.Kinds.IsNormalized });
+            Assert.Equal(column.Annotations.Schema.Select(x => x.Name), new string[2] { AnnotationUtils.Kinds.SlotNames, AnnotationUtils.Kinds.IsNormalized });
             column.GetSlotNames(ref slots);
             Assert.True(slots.Length == 2);
             Assert.Equal(slots.Items().Select(x => x.Value.ToString()), new string[2] { "Bit1", "Bit0" });
             Assert.True(column.IsNormalized());
 
             column = result.Schema["CatC"];
-            Assert.Empty(column.Metadata.Schema);
+            Assert.Empty(column.Annotations.Schema);
 
             column = result.Schema["CatD"];
-            Assert.Equal(column.Metadata.Schema.Single().Name, MetadataUtils.Kinds.IsNormalized);
+            Assert.Equal(column.Annotations.Schema.Single().Name, AnnotationUtils.Kinds.IsNormalized);
             Assert.True(column.IsNormalized());
         }
 
@@ -152,19 +148,15 @@ namespace Microsoft.ML.Tests.Transformers
         public void TestOldSavingAndLoading()
         {
             var data = new[] { new TestClass() { A = 1, B = 2, C = 3, }, new TestClass() { A = 4, B = 5, C = 6 } };
-            var dataView = ComponentCreation.CreateDataView(Env, data);
+            var dataView = ML.Data.LoadFromEnumerable(data);
             var est = new ValueToKeyMappingEstimator(Env, new[]{
-                    new ValueToKeyMappingTransformer.ColumnInfo("A", "TermA"),
-                    new ValueToKeyMappingTransformer.ColumnInfo("B", "TermB", textKeyValues:true),
-                    new ValueToKeyMappingTransformer.ColumnInfo("C", "TermC")
+                    new ValueToKeyMappingEstimator.ColumnOptions("TermA", "A"),
+                    new ValueToKeyMappingEstimator.ColumnOptions("TermB", "B", textKeyValues:true),
+                    new ValueToKeyMappingEstimator.ColumnOptions("TermC", "C")
             });
             var transformer = est.Fit(dataView);
             dataView = transformer.Transform(dataView);
-            var pipe = new KeyToBinaryVectorMappingEstimator(Env,
-                new KeyToBinaryVectorMappingTransformer.ColumnInfo("TermA", "CatA"),
-                new KeyToBinaryVectorMappingTransformer.ColumnInfo("TermB", "CatB"),
-                new KeyToBinaryVectorMappingTransformer.ColumnInfo("TermC", "CatC")
-            );
+            var pipe = ML.Transforms.Conversion.MapKeyToBinaryVector(("CatA", "TermA"), ("CatB", "TermB"), ("CatC", "TermC"));
             var result = pipe.Fit(dataView).Transform(dataView);
             var resultRoles = new RoleMappedData(result);
             using (var ms = new MemoryStream())

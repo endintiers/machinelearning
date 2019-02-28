@@ -5,11 +5,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using Microsoft.ML.Core.Data;
 using Microsoft.ML.Data;
 using Microsoft.ML.Internal.Utilities;
-using Microsoft.ML.StaticPipe.Runtime;
-using Microsoft.ML.Transforms.Normalizers;
+using Microsoft.ML.Transforms;
 
 namespace Microsoft.ML.StaticPipe
 {
@@ -72,7 +70,7 @@ namespace Microsoft.ML.StaticPipe
         {
             Contracts.CheckValue(input, nameof(input));
             Contracts.CheckParam(maxTrainingExamples > 1, nameof(maxTrainingExamples), "Must be greater than 1");
-            return new Impl<T>(input, (src, name) => new NormalizingEstimator.MinMaxColumn(src, name, maxTrainingExamples, fixZero), AffineMapper(onFit));
+            return new Impl<T>(input, (name, src) => new NormalizingEstimator.MinMaxColumnOptions(name, src, maxTrainingExamples, fixZero), AffineMapper(onFit));
         }
 
         // We have a slightly different breaking up of categories of normalizers versus the dynamic API. Both the mean-var and
@@ -171,11 +169,11 @@ namespace Microsoft.ML.StaticPipe
         {
             Contracts.CheckValue(input, nameof(input));
             Contracts.CheckParam(maxTrainingExamples > 1, nameof(maxTrainingExamples), "Must be greater than 1");
-            return new Impl<T>(input, (src, name) =>
+            return new Impl<T>(input, (name, src) =>
             {
                 if (useLog)
-                    return new NormalizingEstimator.LogMeanVarColumn(src, name, maxTrainingExamples, useCdf);
-                return new NormalizingEstimator.MeanVarColumn(src, name, maxTrainingExamples, fixZero, useCdf);
+                    return new NormalizingEstimator.LogMeanVarColumnOptions(name, src, maxTrainingExamples, useCdf);
+                return new NormalizingEstimator.MeanVarColumnOptions(name, src, maxTrainingExamples, fixZero, useCdf);
             }, onFit);
         }
 
@@ -235,7 +233,7 @@ namespace Microsoft.ML.StaticPipe
             Contracts.CheckValue(input, nameof(input));
             Contracts.CheckParam(numBins > 1, nameof(maxTrainingExamples), "Must be greater than 1");
             Contracts.CheckParam(maxTrainingExamples > 1, nameof(maxTrainingExamples), "Must be greater than 1");
-            return new Impl<T>(input, (src, name) => new NormalizingEstimator.BinningColumn(src, name, maxTrainingExamples, fixZero, numBins), BinMapper(onFit));
+            return new Impl<T>(input, (name, src) => new NormalizingEstimator.BinningColumnOptions(name, src, maxTrainingExamples, fixZero, numBins), BinMapper(onFit));
         }
 
         /// <summary>
@@ -271,7 +269,7 @@ namespace Microsoft.ML.StaticPipe
         public delegate void OnFitBinned<TData>(ImmutableArray<TData> upperBounds);
 
         #region Implementation support
-        private delegate NormalizingEstimator.ColumnBase CreateNormCol(string input, string name);
+        private delegate NormalizingEstimator.ColumnOptionsBase CreateNormCol(string outputColumnName, string inputColumnName);
 
         private sealed class Rec : EstimatorReconciler
         {
@@ -281,13 +279,13 @@ namespace Microsoft.ML.StaticPipe
             public override IEstimator<ITransformer> Reconcile(IHostEnvironment env, PipelineColumn[] toOutput,
                 IReadOnlyDictionary<PipelineColumn, string> inputNames, IReadOnlyDictionary<PipelineColumn, string> outputNames, IReadOnlyCollection<string> usedNames)
             {
-                var cols = new NormalizingEstimator.ColumnBase[toOutput.Length];
+                var cols = new NormalizingEstimator.ColumnOptionsBase[toOutput.Length];
                 List<(int idx, Action<IColumnFunction> onFit)> onFits = null;
 
                 for (int i = 0; i < toOutput.Length; ++i)
                 {
                     var col = (INormColCreator)toOutput[i];
-                    cols[i] = col.CreateNormCol(inputNames[col.Input], outputNames[toOutput[i]]);
+                    cols[i] = col.CreateNormCol(outputNames[toOutput[i]], inputNames[col.Input]);
                     if (col.OnFit != null)
                         Utils.Add(ref onFits, (i, col.OnFit));
                 }
